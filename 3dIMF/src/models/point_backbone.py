@@ -4,14 +4,21 @@ import torch
 from torch import nn
 
 
-class TimePairEmbedding(nn.Module):
+class TimeEmbedding(nn.Module):
 
     def __init__(self, dim: int):
         super().__init__()
         self.dim = dim
+        self.net = nn.Sequential(
+            nn.Linear(1, dim),
+            nn.SiLU(),
+            nn.Linear(dim, dim),
+        )
 
-    def forward(self, r: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        # t: [B, 1, 1]
+        # return: [B, 1, D]
+        return self.net(t.reshape(t.shape[0], 1)).unsqueeze(1)
 
 
 class PointBackbone(nn.Module):
@@ -30,11 +37,29 @@ class PointBackbone(nn.Module):
         self.num_layers = num_layers
         self.num_heads = num_heads
         self.dropout = dropout
+        self.point_embed = nn.Linear(3, hidden_dim)
+        self.time_embed = TimeEmbedding(hidden_dim)
+        layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim * 4,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.blocks = nn.TransformerEncoder(layer, num_layers=num_layers)
+        self.out = nn.Linear(hidden_dim, 3)
 
     def forward(
         self,
         z: torch.Tensor,
-        r: torch.Tensor,
         t: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        raise NotImplementedError
+    ) -> torch.Tensor:
+        # z: [B, N, 3]
+        # t: [B, 1, 1]
+        # return velocity: [B, N, 3]
+        h = self.point_embed(z)
+        h = h + self.time_embed(t)
+        h = self.blocks(h)
+        return self.out(h)
