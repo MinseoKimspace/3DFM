@@ -35,6 +35,41 @@ def load_single_pyg_shape(
     return points.float().cpu().contiguous()
 
 
+def load_pyg_shapes(
+    root: str | Path,
+    category: str,
+    num_points: int,
+    split: str = "train",
+    start_index: int = 0,
+    num_shapes: int = 1,
+) -> torch.Tensor:
+    # return points: [S, N, 3]
+    transform = T.Compose([
+        T.NormalizeScale(),
+        T.FixedPoints(num_points, replace=False)
+    ])
+
+    dataset = ShapeNet(
+        root=str(root),
+        categories=category,
+        include_normals=False,
+        split=split,
+        transform=transform,
+    )
+
+    end_index = min(start_index + num_shapes, len(dataset))
+    points_list = []
+
+    for i in range(start_index, end_index):
+        data = dataset[i]
+        points = getattr(data, "pos", None)
+        if points is None:
+            raise ValueError("Expected PyG ShapeNet data to contain pos.")
+        points_list.append(points.float().cpu().contiguous())
+
+    return torch.stack(points_list, dim=0)
+
+
 def build_pyg_point_cache(
     root: str | Path,
     category: str,
