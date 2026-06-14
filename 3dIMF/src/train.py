@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import torch
+import yaml
 
 from data.pyg_shapenet import load_pyg_shapes
 from fm.losses import fm_loss
@@ -12,8 +13,28 @@ from models.point_backbone import PointBackbone
 from visualize import save_point_cloud_ply
 
 
+def load_config_defaults(path: str) -> dict[str, object]:
+    if not path:
+        return {}
+
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    defaults = {}
+    defaults.update(cfg.get("data", {}))
+    defaults.update(cfg.get("model", {}))
+    defaults.update(cfg.get("training", {}))
+    defaults.update(cfg.get("sampling", {}))
+    defaults.update(cfg.get("output", {}))
+    return defaults
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--config", type=str, default="")
+    config_args, _ = config_parser.parse_known_args()
+
+    parser = argparse.ArgumentParser(parents=[config_parser])
     parser.add_argument("--data-mode", choices=["file", "shapenet"], default="shapenet")
     parser.add_argument("--shape-path", type=str, default="")
     parser.add_argument("--data-root", type=str, default="3dIMF/src/data/shapenet_pyg")
@@ -36,6 +57,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--out-dir", type=str, default="runs/single_shape_fm")
+
+    parser.set_defaults(**load_config_defaults(config_args.config))
     return parser.parse_args()
 
 
