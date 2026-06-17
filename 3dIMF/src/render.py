@@ -43,6 +43,22 @@ def collect_input_paths(run_dir: str | None, inputs: list[str]) -> list[Path]:
     return unique_paths
 
 
+def collect_compare_paths(compare_dirs: list[str]) -> list[Path]:
+    paths = []
+    for item in compare_dirs:
+        root = Path(item)
+        samples = sorted(root.glob("sample_*.pt"))
+        if samples:
+            paths.append(samples[-1])
+            continue
+        fallback = root / "sample.pt"
+        if fallback.exists():
+            paths.append(fallback)
+            continue
+        raise FileNotFoundError(f"No sample_*.pt found in {root}")
+    return paths
+
+
 def load_cloud(path: Path, index: int) -> torch.Tensor:
     # return: [N, 3]
     points = load_points(path)
@@ -136,6 +152,7 @@ def render_grid(
     index: int,
     max_items: int,
     cols: int,
+    labels: list[str] | None,
     point_size: float,
     view: str,
     elev: float | None,
@@ -160,7 +177,7 @@ def render_grid(
 
     for i, (path, cloud) in enumerate(zip(paths, clouds), start=1):
         ax = fig.add_subplot(rows, cols, i, projection="3d")
-        title = path.stem
+        title = labels[i - 1] if labels and i - 1 < len(labels) else path.stem
         if path.name == "targets.pt":
             title = f"target[{index}]"
         plot_cloud(
@@ -184,6 +201,8 @@ def render_grid(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dir", type=str, default="")
+    parser.add_argument("--compare-dirs", nargs="*", default=[])
+    parser.add_argument("--labels", nargs="*", default=[])
     parser.add_argument("--inputs", nargs="*", default=[])
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--index", type=int, default=0)
@@ -202,7 +221,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    paths = collect_input_paths(args.run_dir or None, args.inputs)
+    if args.compare_dirs:
+        paths = collect_compare_paths(args.compare_dirs)
+    else:
+        paths = collect_input_paths(args.run_dir or None, args.inputs)
+
     output = args.output
     if not output:
         output = str(Path(args.run_dir) / "render_grid.png") if args.run_dir else "render_grid.png"
@@ -213,6 +236,7 @@ def main() -> None:
         index=args.index,
         max_items=args.max_items,
         cols=args.cols,
+        labels=args.labels or None,
         point_size=args.point_size,
         view=args.view,
         elev=args.elev,
