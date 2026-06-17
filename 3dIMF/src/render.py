@@ -49,9 +49,45 @@ def load_cloud(path: Path, index: int) -> torch.Tensor:
     return as_single_point_cloud(points, index=index).float().cpu()
 
 
-def point_limits(clouds: list[torch.Tensor], pad: float) -> tuple[torch.Tensor, torch.Tensor]:
-    mins = torch.stack([cloud.min(dim=0).values for cloud in clouds]).min(dim=0).values
-    maxs = torch.stack([cloud.max(dim=0).values for cloud in clouds]).max(dim=0).values
+def orient_cloud(cloud: torch.Tensor, up_axis: str) -> torch.Tensor:
+    # Matplotlib uses z as the vertical axis.
+    if up_axis == "z":
+        return cloud
+    if up_axis == "y":
+        return torch.stack([cloud[:, 0], cloud[:, 2], cloud[:, 1]], dim=-1)
+    raise ValueError(f"Unknown up axis: {up_axis}")
+
+
+def camera_angles(view: str, elev: float | None, azim: float | None) -> tuple[float, float]:
+    presets = {
+        "iso": (18.0, -60.0),
+        "front": (8.0, -90.0),
+        "side": (8.0, 0.0),
+        "top": (90.0, -90.0),
+    }
+    if view not in presets:
+        raise ValueError(f"Unknown view: {view}")
+    preset_elev, preset_azim = presets[view]
+    return (
+        preset_elev if elev is None else elev,
+        preset_azim if azim is None else azim,
+    )
+
+
+def point_limits(
+    clouds: list[torch.Tensor],
+    pad: float,
+    quantile: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    all_points = torch.cat(clouds, dim=0)
+    if quantile >= 1.0:
+        mins = all_points.min(dim=0).values
+        maxs = all_points.max(dim=0).values
+    else:
+        low = (1.0 - quantile) * 0.5
+        high = 1.0 - low
+        mins = torch.quantile(all_points, low, dim=0)
+        maxs = torch.quantile(all_points, high, dim=0)
     center = 0.5 * (mins + maxs)
     radius = 0.5 * (maxs - mins).max()
     radius = radius * pad
@@ -86,6 +122,11 @@ def plot_cloud(
     ax.view_init(elev=elev, azim=azim)
     ax.set_proj_type("ortho")
     ax.set_title(title, fontsize=9, pad=2)
+    ax.set_facecolor("white")
+    ax.xaxis.pane.set_alpha(0.0)
+    ax.yaxis.pane.set_alpha(0.0)
+    ax.zaxis.pane.set_alpha(0.0)
+    ax.grid(False)
     ax.set_axis_off()
 
 
@@ -96,21 +137,26 @@ def render_grid(
     max_items: int,
     cols: int,
     point_size: float,
-    elev: float,
-    azim: float,
+    view: str,
+    elev: float | None,
+    azim: float | None,
     dpi: int,
     pad: float,
+    up_axis: str,
+    limit_quantile: float,
 ) -> None:
     paths = paths[:max_items]
     if not paths:
         raise ValueError("No point cloud files were found.")
 
-    clouds = [load_cloud(path, index=index) for path in paths]
-    lower, upper = point_limits(clouds, pad=pad)
+    clouds = [orient_cloud(load_cloud(path, index=index), up_axis=up_axis) for path in paths]
+    lower, upper = point_limits(clouds, pad=pad, quantile=limit_quantile)
+    elev, azim = camera_angles(view, elev=elev, azim=azim)
 
     cols = min(cols, len(paths))
     rows = math.ceil(len(paths) / cols)
     fig = plt.figure(figsize=(3.0 * cols, 3.0 * rows), dpi=dpi)
+    fig.patch.set_facecolor("white")
 
     for i, (path, cloud) in enumerate(zip(paths, clouds), start=1):
         ax = fig.add_subplot(rows, cols, i, projection="3d")
@@ -144,10 +190,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-items", type=int, default=16)
     parser.add_argument("--cols", type=int, default=4)
     parser.add_argument("--point-size", type=float, default=2.0)
-    parser.add_argument("--elev", type=float, default=25.0)
-    parser.add_argument("--azim", type=float, default=-55.0)
+    parser.add_argument("--view", choices=["iso", "front", "side", "top"], default="iso")
+    parser.add_argument("--up-axis", choices=["y", "z"], default="y")
+    parser.add_argument("--elev", type=float, default=None)
+    parser.add_argument("--azim", type=float, default=None)
     parser.add_argument("--dpi", type=int, default=180)
     parser.add_argument("--pad", type=float, default=1.08)
+    parser.add_argument("--limit-quantile", type=float, default=0.99)
     return parser.parse_args()
 
 
@@ -165,10 +214,13 @@ def main() -> None:
         max_items=args.max_items,
         cols=args.cols,
         point_size=args.point_size,
+        view=args.view,
         elev=args.elev,
         azim=args.azim,
         dpi=args.dpi,
         pad=args.pad,
+        up_axis=args.up_axis,
+        limit_quantile=args.limit_quantile,
     )
     print(f"saved {output}")
 
