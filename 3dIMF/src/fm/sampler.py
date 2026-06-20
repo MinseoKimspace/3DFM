@@ -19,6 +19,7 @@ def sample_euler(
         x = torch.randn(batch_size, num_points, 3, device=device, dtype=dtype)
     else:
         x = init.to(device=device, dtype=dtype)
+        batch_size = x.shape[0]
 
     times = torch.linspace(0.0, 1.0, steps + 1, device=device, dtype=dtype)
 

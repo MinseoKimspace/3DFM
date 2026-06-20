@@ -55,6 +55,10 @@ def collect_compare_paths(compare_dirs: list[str]) -> list[Path]:
         if fallback.exists():
             paths.append(fallback)
             continue
+        fallback = root / "samples.pt"
+        if fallback.exists():
+            paths.append(fallback)
+            continue
         raise FileNotFoundError(f"No sample_*.pt found in {root}")
     return paths
 
