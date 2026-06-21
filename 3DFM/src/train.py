@@ -9,7 +9,7 @@ import yaml
 from data.pyg_shapenet import load_pyg_shapes
 from fm.losses import fm_loss
 from fm.sampler import sample_euler
-from models.point_backbone import PointBackbone
+from models.builder import build_model
 from visualize import save_point_cloud_ply
 
 
@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(parents=[config_parser])
     parser.add_argument("--data-mode", choices=["file", "shapenet"], default="shapenet")
     parser.add_argument("--shape-path", type=str, default="")
-    parser.add_argument("--data-root", type=str, default="3dIMF/src/data/shapenet_pyg")
+    parser.add_argument("--data-root", type=str, default="3DFM/src/data/shapenet_pyg")
     parser.add_argument("--category", type=str, default="Chair")
     parser.add_argument("--split", type=str, default="train")
     parser.add_argument("--shape-index", type=int, default=0)
@@ -49,9 +49,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--nfe", type=int, default=64)
     parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--arch", choices=["base", "spatial_pma"], default="base")
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--num-layers", type=int, default=4)
     parser.add_argument("--num-heads", type=int, default=4)
+    parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument("--early-layers", type=int, default=2)
+    parser.add_argument("--num-slots", type=int, default=16)
+    parser.add_argument("--knn-k", type=int, default=32)
+    parser.add_argument("--spatial-random-start", action="store_true")
     parser.add_argument("--log-every", type=int, default=100)
     parser.add_argument("--sample-every", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
@@ -132,12 +138,7 @@ def main() -> None:
     except ImportError as exc:
         print(exc)
 
-    model = PointBackbone(
-        num_points=args.num_points,
-        hidden_dim=args.hidden_dim,
-        num_layers=args.num_layers,
-        num_heads=args.num_heads,
-    ).to(device)
+    model = build_model(args).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
     for step in range(1, args.steps + 1):

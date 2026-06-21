@@ -16,8 +16,10 @@ def load_points(path: str | Path) -> torch.Tensor:
             obj = obj["points"]
         elif "samples" in obj:
             obj = obj["samples"]
+        elif "sample" in obj:
+            obj = obj["sample"]
         else:
-            raise KeyError("Expected dict to contain `points` or `samples`.")
+            raise KeyError("Expected dict to contain `points`, `samples`, or `sample`.")
     if obj.ndim != 3 or obj.shape[-1] != 3:
         raise ValueError(f"Expected [S, N, 3], got {tuple(obj.shape)}")
     return obj.float().contiguous()

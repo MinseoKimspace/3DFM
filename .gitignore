@@ -20,12 +20,12 @@ Thumbs.db
 
 # Local data
 data/
-3dIMF/src/data/shapenet_pyg/
-3dIMF/src/data/**/*.zip
-3dIMF/src/data/**/*.tar
-3dIMF/src/data/**/*.tar.gz
-3dIMF/src/data/**/*.pt
-3dIMF/src/data/**/*.pth
+3DFM/src/data/shapenet_pyg/
+3DFM/src/data/**/*.zip
+3DFM/src/data/**/*.tar
+3DFM/src/data/**/*.tar.gz
+3DFM/src/data/**/*.pt
+3DFM/src/data/**/*.pth
 
 # Experiment outputs
 runs/

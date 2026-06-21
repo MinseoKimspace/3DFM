@@ -1,6 +1,6 @@
 data:
   data_mode: shapenet
-  data_root: 3dIMF/src/data/shapenet_pyg
+  data_root: 3DFM/src/data/shapenet_pyg
   category: Chair
   split: train
   shape_index: 0
@@ -9,12 +9,18 @@ data:
   target_order: shuffle
 
 model:
+  arch: spatial_pma
   hidden_dim: 256
   num_layers: 6
+  early_layers: 3
   num_heads: 8
+  num_slots: 64
+  knn_k: 64
+  spatial_random_start: false
+  dropout: 0.0
 
 training:
-  batch_size: 4
+  batch_size: 8
   steps: 30000
   lr: 2.0e-4
   seed: 42
@@ -26,4 +32,4 @@ sampling:
   nfe: 64
 
 output:
-  out_dir: runs/base_chair10_n2048
+  out_dir: runs/spatial_pma_chair10_n2048

@@ -42,9 +42,11 @@ def load_points(path: str | Path) -> torch.Tensor:
     if isinstance(obj, dict):
         if "points" in obj:
             return obj["points"]
+        if "samples" in obj:
+            return obj["samples"]
         if "sample" in obj:
             return obj["sample"]
-        raise KeyError("Expected dict checkpoint to contain `points` or `sample`.")
+        raise KeyError("Expected dict checkpoint to contain `points`, `samples`, or `sample`.")
     return obj
 
 

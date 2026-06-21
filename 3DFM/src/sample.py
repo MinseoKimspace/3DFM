@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 
 from fm.sampler import sample_euler
-from models.point_backbone import PointBackbone
+from models.builder import build_model
 from visualize import save_point_cloud_ply
 
 
@@ -18,14 +18,9 @@ def choose_device(name: str) -> torch.device:
     return torch.device(name)
 
 
-def build_model_from_checkpoint(ckpt: dict, device: torch.device) -> PointBackbone:
+def build_model_from_checkpoint(ckpt: dict, device: torch.device) -> torch.nn.Module:
     args = ckpt["args"]
-    model = PointBackbone(
-        num_points=args["num_points"],
-        hidden_dim=args["hidden_dim"],
-        num_layers=args["num_layers"],
-        num_heads=args["num_heads"],
-    ).to(device)
+    model = build_model(args).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
     return model
@@ -97,6 +92,7 @@ def main() -> None:
 
     summary = {
         "checkpoint": args.checkpoint,
+        "arch": train_args.get("arch", "base"),
         "num_samples": args.num_samples,
         "num_points": num_points,
         "seed": args.seed,
