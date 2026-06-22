@@ -12,9 +12,13 @@ def sample_euler(
     device: torch.device | str,
     dtype: torch.dtype = torch.float32,
     init: torch.Tensor | None = None,
+    model_kwargs: dict | None = None,
 ) -> torch.Tensor:
     # model(x, t) -> velocity: [B, N, 3]
     # return: [B, N, 3]
+    if model_kwargs is None:
+        model_kwargs = {}
+
     if init is None:
         x = torch.randn(batch_size, num_points, 3, device=device, dtype=dtype)
     else:
@@ -29,7 +33,7 @@ def sample_euler(
         dt = t_next - t_now
 
         t = t_now.expand(batch_size, 1, 1)
-        v = model(x, t)
+        v = model(x, t, **model_kwargs)
 
         x = x + dt * v
 
