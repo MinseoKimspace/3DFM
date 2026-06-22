@@ -5,7 +5,7 @@ from typing import Any
 
 from torch import nn
 
-from models.point_backbone import PointBackbone, SpatialPMABackbone
+from models.point_backbone import PointBackbone, SpatialPMABackbone, XHatSelfCondBackbone
 
 
 def _get(config: Any, name: str, default: Any) -> Any:
@@ -34,6 +34,12 @@ def build_model(config: Any) -> nn.Module:
             num_slots=_get(config, "num_slots", 16),
             knn_k=_get(config, "knn_k", 32),
             spatial_random_start=_get(config, "spatial_random_start", False),
+        )
+
+    if arch == "xhat_selfcond":
+        return XHatSelfCondBackbone(
+            **common,
+            early_layers=_get(config, "early_layers", 2),
         )
 
     raise ValueError(f"Unknown model arch: {arch}")

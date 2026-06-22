@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import torch
 from torch import nn
 from models.spatial_pma import SpatialPMA
@@ -167,3 +166,83 @@ class SpatialPMABackbone(nn.Module):
                 h = self.slot_cross_attn(h, slots)
 
         return self.out(h)
+
+class XHatSelfCondBackbone(nn.Module):
+    def __init__(
+        self,
+        num_points: int = 1024,
+        hidden_dim: int = 128,
+        num_layers: int = 4,
+        early_layers: int = 2,
+        num_heads: int = 4,
+        dropout: float = 0.0,
+        ) -> None:
+        super().__init__()
+        if not (0 <= early_layers < num_layers):
+            raise ValueError("early_layers must be in [0, num_layers).")
+
+        self.num_points = num_points
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.early_layers = early_layers
+        self.num_heads = num_heads
+        self.dropout = dropout
+
+        self.point_embed = nn.Linear(3, hidden_dim)
+        self.time_embed = TimeEmbedding(hidden_dim)
+
+        self.blocks = nn.ModuleList([
+            nn.TransformerEncoderLayer(
+                d_model=hidden_dim,
+                nhead=num_heads,
+                dim_feedforward=hidden_dim * 4,
+                dropout=dropout,
+                activation="gelu",
+                batch_first=True,
+                norm_first=True,
+            )
+            for _ in range(num_layers)
+        ])
+
+        self.aux_head = nn.Linear(hidden_dim, 3)
+
+        self.xhat_embed = nn.Sequential(
+            nn.Linear(3, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.global_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.out = nn.Linear(hidden_dim, 3)
+
+    def forward(self, z: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        return self.forward_with_aux(z, t)["velocity"]
+    
+    def forward_with_aux(self, z: torch.Tensor, t: torch.Tensor) -> dict:
+        # z: [B, N, 3]
+        # t: [B, 1, 1]
+    
+        h = self.point_embed(z)
+        h = h + self.time_embed(t)
+    
+        for block in self.blocks[:self.early_layers]:
+            h = block(h)
+    
+        v_aux = self.aux_head(h)              # [B, N, 3]
+        x_hat1 = z + (1.0 - t) * v_aux        # [B, N, 3]
+    
+        x_code = self.xhat_embed(x_hat1)      # [B, N, D]
+        x_code = x_code.mean(dim=1, keepdim=True)  # [B, 1, D]
+    
+        h = h + self.global_proj(x_code)      # broadcast: [B, N, D] + [B, 1, D]
+    
+        for block in self.blocks[self.early_layers:]:
+            h = block(h)
+    
+        velocity = self.out(h)                # [B, N, 3]
+    
+        return {
+            "velocity": velocity,
+            "aux_velocity": v_aux,
+            "x_hat1": x_hat1,
+            "global_code": x_code,
+        }

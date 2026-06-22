@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--nfe", type=int, default=64)
     parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--arch", choices=["base", "spatial_pma"], default="base")
+    parser.add_argument("--arch", choices=["base", "spatial_pma", "xhat_selfcond"], default="base")
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--num-layers", type=int, default=4)
     parser.add_argument("--num-heads", type=int, default=4)
@@ -58,6 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-slots", type=int, default=16)
     parser.add_argument("--knn-k", type=int, default=32)
     parser.add_argument("--spatial-random-start", action="store_true")
+    parser.add_argument("--aux-weight", type=float, default=0.0)
     parser.add_argument("--log-every", type=int, default=100)
     parser.add_argument("--sample-every", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
@@ -145,12 +146,16 @@ def main() -> None:
         x_data = make_batch(targets, args.batch_size, args.target_order)
 
         optimizer.zero_grad(set_to_none=True)
-        loss, metrics = fm_loss(model, x_data)
+        loss, metrics = fm_loss(model, x_data, aux_weight=args.aux_weight)
         loss.backward()
         optimizer.step()
 
         if step % args.log_every == 0 or step == 1:
-            print(f"step {step} loss {float(metrics['loss']):.6f}")
+            print(
+                f"step {step} loss {float(metrics['loss']):.6f} "
+                f"fm {float(metrics['fm_mse']):.6f} "
+                f"aux {float(metrics['aux_mse']):.6f}"
+            )
 
         if step % args.sample_every == 0:
             sample = sample_euler(
