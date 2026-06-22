@@ -129,8 +129,15 @@ class SpatialPMABackbone(nn.Module):
     def forward(
             self,
             z: torch.Tensor,
-            t: torch.Tensor
+            t: torch.Tensor,
+            slot_mode: str = "normal",
         ) -> torch.Tensor:
+        # z: [B, N, 3]
+        # t: [B, 1, 1]
+        # slot_mode:
+        #   normal  -> use slots from the same sample
+        #   zero    -> replace slots by zeros
+        #   shuffle -> use slots from another sample in the batch
         
         h = self.point_embed(z)
         h = h + self.time_embed(t)
@@ -139,6 +146,19 @@ class SpatialPMABackbone(nn.Module):
             h = block(h)
 
         slots = self.spatial_pma(z, h)
+        if slot_mode == "zero":
+            slots = torch.zeros_like(slots)
+        elif slot_mode == "shuffle":
+            batch_size = slots.shape[0]
+            if batch_size > 1:
+                perm = torch.randperm(batch_size, device=slots.device)
+                if torch.equal(perm, torch.arange(batch_size, device=slots.device)):
+                    perm = torch.roll(perm, shifts=1)
+                slots = slots[perm]
+        elif slot_mode == "normal":
+            pass
+        else:
+            raise ValueError(f"Unknown slot_mode: {slot_mode}")
 
         for i, block in enumerate(self.blocks[self.early_layers:]):
             h = block(h)
