@@ -3,3 +3,4 @@ torch-geometric>=2.5
 open3d
 PyYAML
 matplotlib
+mitsuba
