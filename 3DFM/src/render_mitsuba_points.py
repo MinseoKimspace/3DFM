@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import math
 import re
 from dataclasses import dataclass
@@ -46,6 +47,17 @@ def sample_roots(root: Path, mode: str) -> list[Path]:
     return list(dict.fromkeys(roots))
 
 
+def expand_run_dirs(patterns: list[str]) -> list[Path]:
+    roots = []
+    for pattern in patterns:
+        matches = sorted(glob.glob(pattern))
+        if matches:
+            roots.extend(Path(match) for match in matches)
+        else:
+            roots.append(Path(pattern))
+    return roots
+
+
 def load_cloud(path: Path, index: int, up_axis: str) -> torch.Tensor:
     cloud = as_single_point_cloud(load_points(path), index=index).float().cpu()
     if cloud.ndim != 2 or cloud.shape[-1] != 3:
@@ -60,9 +72,9 @@ def load_cloud(path: Path, index: int, up_axis: str) -> torch.Tensor:
 def collect_jobs(args: argparse.Namespace) -> list[RenderJob]:
     jobs = []
     searched = []
+    run_dirs = expand_run_dirs(args.run_dirs)
 
-    for model_index, run_dir in enumerate(args.run_dirs):
-        root = Path(run_dir)
+    for model_index, root in enumerate(run_dirs):
         model = args.labels[model_index] if model_index < len(args.labels) else root.name
 
         for mode in args.modes:
@@ -87,7 +99,7 @@ def collect_jobs(args: argparse.Namespace) -> list[RenderJob]:
                         )
                     )
 
-    offset = len(args.run_dirs)
+    offset = len(run_dirs)
     for i, path_str in enumerate(args.inputs):
         path = Path(path_str)
         label_index = offset + i
