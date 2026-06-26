@@ -28,12 +28,11 @@ def build_model_from_checkpoint(ckpt: dict, device: torch.device) -> torch.nn.Mo
 
 def sample_in_batches(
     model: torch.nn.Module,
-    noise: torch.Tensor,
+    noise: torch.Tensor, # [S, N, 3]
     nfe: int,
     batch_size: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, float]:
-    # noise: [S, N, 3]
     samples = []
 
     if device.type == "cuda":

@@ -1,0 +1,36 @@
+data:
+  data_mode: shapenet
+  data_root: 3DFM/src/data/shapenet_pyg
+  category: Chair
+  split: train
+  shape_index: 0
+  num_shapes: 10
+  num_points: 2048
+  target_order: shuffle
+
+model:
+  arch: xhat_spatial_pma
+  hidden_dim: 256
+  num_layers: 6
+  early_layers: 3
+  num_heads: 8
+  num_slots: 64
+  knn_k: 64
+  spatial_random_start: false
+  dropout: 0.0
+
+training:
+  batch_size: 8
+  steps: 30000
+  lr: 2.0e-4
+  aux_weight: 0.5
+  seed: 42
+  log_every: 100
+  sample_every: 1000
+  device: auto
+
+sampling:
+  nfe: 64
+
+output:
+  out_dir: runs/xhat_anchor_pma_chair10_n2048

@@ -5,7 +5,12 @@ from typing import Any
 
 from torch import nn
 
-from models.point_backbone import PointBackbone, SpatialPMABackbone, XHatSelfCondBackbone
+from models.point_backbone import (
+    PointBackbone,
+    SpatialPMABackbone,
+    XHatSelfCondBackbone,
+    XHatSpatialPMABackbone,
+)
 
 
 def _get(config: Any, name: str, default: Any) -> Any:
@@ -40,6 +45,16 @@ def build_model(config: Any) -> nn.Module:
         return XHatSelfCondBackbone(
             **common,
             early_layers=_get(config, "early_layers", 2),
+            use_xhat_condition=_get(config, "use_xhat_condition", True),
+        )
+
+    if arch == "xhat_spatial_pma":
+        return XHatSpatialPMABackbone(
+            **common,
+            early_layers=_get(config, "early_layers", 2),
+            num_slots=_get(config, "num_slots", 16),
+            knn_k=_get(config, "knn_k", 32),
+            spatial_random_start=_get(config, "spatial_random_start", False),
         )
 
     raise ValueError(f"Unknown model arch: {arch}")

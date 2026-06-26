@@ -64,9 +64,8 @@ def collect_compare_paths(compare_dirs: list[str]) -> list[Path]:
 
 
 def load_cloud(path: Path, index: int) -> torch.Tensor:
-    # return: [N, 3]
     points = load_points(path)
-    return as_single_point_cloud(points, index=index).float().cpu()
+    return as_single_point_cloud(points, index=index).float().cpu() # [N, 3]
 
 
 def orient_cloud(cloud: torch.Tensor, up_axis: str) -> torch.Tensor:

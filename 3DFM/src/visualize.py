@@ -6,11 +6,13 @@ from pathlib import Path
 import torch
 
 
-def as_single_point_cloud(points: torch.Tensor, index: int = 0) -> torch.Tensor:
-    # points: [N, 3] or [B, N, 3]
-    # return: [N, 3]
+def as_single_point_cloud(
+        points: torch.Tensor, # [N, 3] or [B, N, 3]
+        index: int = 0,
+        ) -> torch.Tensor:
+    
     if points.ndim == 2:
-        return points
+        return points # N, 3]
     if points.ndim == 3:
         return points[index]
     raise ValueError(f"Expected [N, 3] or [B, N, 3], got shape {tuple(points.shape)}")

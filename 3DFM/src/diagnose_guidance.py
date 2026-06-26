@@ -30,7 +30,6 @@ def load_noise(
     num_points: int,
     seed: int,
 ) -> torch.Tensor:
-    # return noise: [S, N, 3]
     if path:
         obj = torch.load(path, map_location="cpu")
         if isinstance(obj, dict):
@@ -45,31 +44,28 @@ def load_noise(
 
     generator = torch.Generator(device="cpu")
     generator.manual_seed(seed)
-    return torch.randn(num_samples, num_points, 3, generator=generator)
+    return torch.randn(num_samples, num_points, 3, generator=generator) # [S, N, 3]
 
 
 def relative_velocity_diff(
-    reference: torch.Tensor,
-    intervention: torch.Tensor,
+    reference: torch.Tensor, # [B, N, 3]
+    intervention: torch.Tensor, # [B, N, 3]
     eps: float = 1e-8,
 ) -> torch.Tensor:
-    # reference:    [B, N, 3]
-    # intervention: [B, N, 3]
-    # return:       [B]
+
     ref = reference.flatten(1)
     other = intervention.flatten(1)
-    return (ref - other).norm(dim=1) / (ref.norm(dim=1) + eps)
+    return (ref - other).norm(dim=1) / (ref.norm(dim=1) + eps) # [B]
 
 
 @torch.no_grad()
 def diagnose_batch(
     model: torch.nn.Module,
-    init: torch.Tensor,
+    init: torch.Tensor, # [B, N, 3]
     nfe: int,
     device: torch.device,
     dtype: torch.dtype,
 ) -> tuple[list[dict[str, float]], torch.Tensor]:
-    # init: [B, N, 3]
     # return per-step sums and final normal-rollout samples.
     x = init.to(device=device, dtype=dtype)
     batch_size = x.shape[0]

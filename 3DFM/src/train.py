@@ -49,7 +49,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--nfe", type=int, default=64)
     parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--arch", choices=["base", "spatial_pma", "xhat_selfcond"], default="base")
+    parser.add_argument(
+        "--arch",
+        choices=["base", "spatial_pma", "xhat_selfcond", "xhat_spatial_pma"],
+        default="base",
+    )
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--num-layers", type=int, default=4)
     parser.add_argument("--num-heads", type=int, default=4)
@@ -58,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-slots", type=int, default=16)
     parser.add_argument("--knn-k", type=int, default=32)
     parser.add_argument("--spatial-random-start", action="store_true")
+    parser.add_argument("--use-xhat-condition", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--aux-weight", type=float, default=0.0)
     parser.add_argument("--log-every", type=int, default=100)
     parser.add_argument("--sample-every", type=int, default=500)
@@ -76,7 +81,6 @@ def choose_device(name: str) -> torch.device:
 
 
 def load_targets(args: argparse.Namespace) -> torch.Tensor:
-    # return: [S, N, 3]
     if args.data_mode == "file":
         obj = torch.load(args.shape_path, map_location="cpu")
         points = obj["points"] if isinstance(obj, dict) else obj
@@ -88,7 +92,7 @@ def load_targets(args: argparse.Namespace) -> torch.Tensor:
             return points[start:end].float().contiguous()
         raise ValueError(f"Expected [N, 3] or [S, N, 3], got {tuple(points.shape)}")
 
-    return load_pyg_shapes(
+    return load_pyg_shapes( # [S, N, 3]
         root=args.data_root,
         category=args.category,
         num_points=args.num_points,
@@ -98,9 +102,11 @@ def load_targets(args: argparse.Namespace) -> torch.Tensor:
     )
 
 
-def make_batch(targets: torch.Tensor, batch_size: int, target_order: str) -> torch.Tensor:
-    # targets: [S, N, 3]
-    # return: [B, N, 3]
+def make_batch(
+        targets: torch.Tensor,# [S, N, 3]
+        batch_size: int,
+        target_order: str
+        ) -> torch.Tensor:
     shape_indices = torch.randint(
         low=0,
         high=targets.shape[0],
@@ -121,7 +127,7 @@ def make_batch(targets: torch.Tensor, batch_size: int, target_order: str) -> tor
             dim=1,
             index=indices.unsqueeze(-1).expand(batch_count, num_points, coord_dim),
         )
-    return batch
+    return batch # [B, N, 3]
 
 
 def main() -> None:

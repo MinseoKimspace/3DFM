@@ -35,7 +35,6 @@ def load_or_make_noise(
     num_points: int,
     seed: int,
 ) -> torch.Tensor:
-    # return noise: [S, N, 3]
     if path:
         noise = torch.load(path, map_location="cpu")
         if isinstance(noise, dict):
@@ -44,12 +43,14 @@ def load_or_make_noise(
 
     generator = torch.Generator(device="cpu")
     generator.manual_seed(seed)
-    return torch.randn(num_samples, num_points, 3, generator=generator)
+    return torch.randn(num_samples, num_points, 3, generator=generator) # [S, N, 3]
 
 
-def relative_sample_diff(reference: torch.Tensor, other: torch.Tensor) -> float:
-    # reference: [S, N, 3]
-    # other:     [S, N, 3]
+def relative_sample_diff(
+        reference: torch.Tensor, # [S, N, 3]
+        other: torch.Tensor, # [S, N, 3]
+        ) -> float:
+    
     ref = reference.flatten(1)
     val = other.flatten(1)
     diff = (ref - val).norm(dim=1) / (ref.norm(dim=1) + 1e-8)
@@ -58,13 +59,12 @@ def relative_sample_diff(reference: torch.Tensor, other: torch.Tensor) -> float:
 
 def sample_mode_in_batches(
     model: torch.nn.Module,
-    noise: torch.Tensor,
+    noise: torch.Tensor, # [S, N, 3]
     nfe: int,
     batch_size: int,
     device: torch.device,
     slot_mode: str,
 ) -> tuple[torch.Tensor, float]:
-    # noise: [S, N, 3]
     samples = []
 
     if device.type == "cuda":

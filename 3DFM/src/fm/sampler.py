@@ -5,7 +5,7 @@ import torch
 
 @torch.no_grad()
 def sample_euler(
-    model: torch.nn.Module,
+    model: torch.nn.Module, # model(x, t) -> velocity: [B, N, 3]
     batch_size: int,
     num_points: int,
     steps: int,
@@ -14,8 +14,6 @@ def sample_euler(
     init: torch.Tensor | None = None,
     model_kwargs: dict | None = None,
 ) -> torch.Tensor:
-    # model(x, t) -> velocity: [B, N, 3]
-    # return: [B, N, 3]
     if model_kwargs is None:
         model_kwargs = {}
 
@@ -37,4 +35,4 @@ def sample_euler(
 
         x = x + dt * v
 
-    return x 
+    return x # [B, N, 3]

@@ -43,7 +43,6 @@ def load_pyg_shapes(
     start_index: int = 0,
     num_shapes: int = 1,
 ) -> torch.Tensor:
-    # return points: [S, N, 3]
     transform = T.Compose([
         T.NormalizeScale(),
         T.FixedPoints(num_points, replace=False)
@@ -67,7 +66,7 @@ def load_pyg_shapes(
             raise ValueError("Expected PyG ShapeNet data to contain pos.")
         points_list.append(points.float().cpu().contiguous())
 
-    return torch.stack(points_list, dim=0)
+    return torch.stack(points_list, dim=0) # [S, N, 3]
 
 
 def build_pyg_point_cache(
@@ -78,7 +77,6 @@ def build_pyg_point_cache(
     out_path: str | Path,
     max_shapes: int | None = None,
 ) -> None:
-    # saved points: [S, N, 3]
     transform = T.Compose([
         T.NormalizeScale(),
         T.FixedPoints(num_points, replace=False)
@@ -111,7 +109,7 @@ def build_pyg_point_cache(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    torch.save(
+    torch.save( # [S, N, 3]
         {
             "points": points_all,
             "category": category,
@@ -122,9 +120,8 @@ def build_pyg_point_cache(
     )
 
 def load_point_cache(path: str | Path) -> torch.Tensor:
-    # return points: [S, N, 3]
     cache = torch.load(path, map_location="cpu")
     points = cache["points"]
     if points.ndim != 3 or points.shape[-1] != 3:
         raise ValueError()
-    return points.float().cpu().contiguous()
+    return points.float().cpu().contiguous() # [S, N, 3]

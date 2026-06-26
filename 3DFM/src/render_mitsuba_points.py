@@ -38,6 +38,14 @@ def safe_name(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("_") or "cloud"
 
 
+def sample_roots(root: Path, mode: str) -> list[Path]:
+    if mode:
+        roots = [root / mode, root / "eval" / mode]
+    else:
+        roots = [root, root / "eval"]
+    return list(dict.fromkeys(roots))
+
+
 def load_cloud(path: Path, index: int, up_axis: str) -> torch.Tensor:
     cloud = as_single_point_cloud(load_points(path), index=index).float().cpu()
     if cloud.ndim != 2 or cloud.shape[-1] != 3:
@@ -51,26 +59,33 @@ def load_cloud(path: Path, index: int, up_axis: str) -> torch.Tensor:
 
 def collect_jobs(args: argparse.Namespace) -> list[RenderJob]:
     jobs = []
+    searched = []
 
     for model_index, run_dir in enumerate(args.run_dirs):
         root = Path(run_dir)
         model = args.labels[model_index] if model_index < len(args.labels) else root.name
 
         for mode in args.modes:
-            mode_root = root / mode if mode else root
-            for nfe in args.nfe:
-                path = mode_root / f"nfe_{nfe:03d}" / "samples.pt"
-                if not path.exists():
-                    continue
-                suffix = f" / {mode}" if mode else ""
-                jobs.append(
-                    RenderJob(
-                        path=path,
-                        label=f"{model}{suffix} / NFE={nfe}",
-                        model_index=model_index,
-                        nfe=nfe,
+            for mode_root in sample_roots(root, mode):
+                for nfe in args.nfe:
+                    candidates = [
+                        mode_root / f"nfe_{nfe:03d}" / "samples.pt",
+                        mode_root / f"nfe_{nfe}" / "samples.pt",
+                    ]
+                    searched.extend(candidates)
+                    path = next((candidate for candidate in candidates if candidate.exists()), None)
+                    if path is None:
+                        continue
+
+                    suffix = f" / {mode}" if mode else ""
+                    jobs.append(
+                        RenderJob(
+                            path=path,
+                            label=f"{model}{suffix} / NFE={nfe}",
+                            model_index=model_index,
+                            nfe=nfe,
+                        )
                     )
-                )
 
     offset = len(args.run_dirs)
     for i, path_str in enumerate(args.inputs):
@@ -80,7 +95,13 @@ def collect_jobs(args: argparse.Namespace) -> list[RenderJob]:
         jobs.append(RenderJob(path=path, label=label, model_index=i))
 
     if not jobs:
-        raise FileNotFoundError("No matching .pt files found.")
+        preview = "\n".join(f"  {path}" for path in searched[:24])
+        more = "" if len(searched) <= 24 else f"\n  ... and {len(searched) - 24} more"
+        raise FileNotFoundError(
+            "No matching .pt files found. Expected paths like:\n"
+            f"{preview}{more}\n"
+            "If you only have root-level sample_*.pt files from train.py, pass them with --inputs."
+        )
     return jobs
 
 
@@ -187,6 +208,8 @@ def render_job(mi, job: RenderJob, args: argparse.Namespace, out_dir: Path) -> P
 
     scene = make_scene(mi, cloud, args)
     image = mi.render(scene, spp=args.spp)
+    if args.exposure != 1.0:
+        image = image * args.exposure
 
     nfe = f"nfe_{job.nfe:03d}" if job.nfe is not None else "input"
     out_path = out_dir / f"{safe_name(job.label)}_{nfe}_idx{args.index:03d}.png"
@@ -250,6 +273,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--height-color", action="store_true")
     parser.add_argument("--ambient", type=float, default=0.25)
     parser.add_argument("--key-light", type=float, default=4.0)
+    parser.add_argument("--exposure", type=float, default=1.0)
     parser.add_argument("--grid-cols", type=int, default=0)
 
     args = parser.parse_args()
@@ -262,6 +286,8 @@ def main() -> None:
     if not args.run_dirs and not args.inputs:
         raise ValueError("Pass --run-dirs or --inputs.")
 
+    jobs = collect_jobs(args)
+
     try:
         import mitsuba as mi
     except ImportError as exc:
@@ -269,7 +295,6 @@ def main() -> None:
 
     mi.set_variant(args.variant)
 
-    jobs = collect_jobs(args)
     out_dir = Path(args.out_dir)
     image_paths = [render_job(mi, job, args, out_dir) for job in jobs]
 

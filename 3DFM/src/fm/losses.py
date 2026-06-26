@@ -8,12 +8,11 @@ import torch.nn.functional as F
 from fm.paths import linear_path, sample_time
 
 def fm_loss(
-    model: torch.nn.Module,
-    x_data: torch.Tensor,
+    model: torch.nn.Module, # model(z_t, t) -> velocity: [B, N, 3]
+    x_data: torch.Tensor, # [B, N, 3]
     aux_weight: float = 0.0,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    # x_data: [B, N, 3]
-    # model(z_t, t) -> velocity: [B, N, 3]
+    
     x_noise = torch.randn_like(x_data)
     t= sample_time(batch=x_data.shape[0], device=x_data.device, dtype=x_data.dtype)
     z_t = linear_path(x_data, x_noise, t)
