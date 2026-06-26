@@ -39,6 +39,7 @@ def build_model(config: Any) -> nn.Module:
             num_slots=_get(config, "num_slots", 16),
             knn_k=_get(config, "knn_k", 32),
             spatial_random_start=_get(config, "spatial_random_start", False),
+            xattn_every_late_block=_get(config, "xattn_every_late_block", False),
         )
 
     if arch == "xhat_selfcond":
@@ -55,6 +56,7 @@ def build_model(config: Any) -> nn.Module:
             num_slots=_get(config, "num_slots", 16),
             knn_k=_get(config, "knn_k", 32),
             spatial_random_start=_get(config, "spatial_random_start", False),
+            xattn_every_late_block=_get(config, "xattn_every_late_block", False),
         )
 
     raise ValueError(f"Unknown model arch: {arch}")

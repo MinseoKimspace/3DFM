@@ -72,6 +72,7 @@ class SpatialPMABackbone(nn.Module):
         num_slots: int = 16,
         knn_k: int = 32,
         spatial_random_start: bool = False,
+        xattn_every_late_block: bool = False,
         dropout: float = 0.0,
     ):
         super().__init__()
@@ -90,6 +91,7 @@ class SpatialPMABackbone(nn.Module):
         self.num_slots = num_slots
         self.knn_k = knn_k
         self.dropout = dropout
+        self.xattn_every_late_block = xattn_every_late_block
         self.point_embed = nn.Linear(3, hidden_dim)
         self.time_embed = TimeEmbedding(hidden_dim)
         self.out = nn.Linear(hidden_dim, 3)
@@ -153,7 +155,7 @@ class SpatialPMABackbone(nn.Module):
         for i, block in enumerate(self.blocks[self.early_layers:]):
             h = block(h)
 
-            if i == 0:
+            if self.xattn_every_late_block or i == 0:
                 h = self.slot_cross_attn(h, slots)
 
         return self.out(h)
@@ -252,6 +254,7 @@ class XHatSpatialPMABackbone(nn.Module):
             num_slots: int = 16,
             knn_k: int = 32,
             spatial_random_start: bool = False,
+            xattn_every_late_block: bool = False,
             dropout: float = 0.0,
             ) -> None:
         super().__init__()
@@ -270,6 +273,7 @@ class XHatSpatialPMABackbone(nn.Module):
         self.num_slots = num_slots
         self.knn_k = knn_k
         self.dropout = dropout
+        self.xattn_every_late_block = xattn_every_late_block
         self.point_embed = nn.Linear(3, hidden_dim)
         self.time_embed = TimeEmbedding(hidden_dim)
         self.aux_head = nn.Linear(hidden_dim, 3)
@@ -340,7 +344,7 @@ class XHatSpatialPMABackbone(nn.Module):
         for i, block in enumerate(self.blocks[self.early_layers:]):
             h = block(h)
 
-            if i == 0:
+            if self.xattn_every_late_block or i == 0:
                 h = self.slot_cross_attn(h, slots)
     
         velocity = self.out(h) # [B, N, 3]
