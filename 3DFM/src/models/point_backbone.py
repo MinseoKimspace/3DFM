@@ -325,7 +325,7 @@ class XHatSpatialPMABackbone(nn.Module):
     
         v_aux = self.aux_head(h) # [B, N, 3]
         x_hat1 = z + (1.0 - t) * v_aux # [B, N, 3]
-
+        
         slots = self.spatial_pma(x_hat1, h)
         if slot_mode == "zero": # replace slots by zeros
             slots = torch.zeros_like(slots)

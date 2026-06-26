@@ -113,7 +113,7 @@ class SpatialPMA(nn.Module):
         self.random_start = random_start
         self.pma = PMA(dim, num_heads, dropout=dropout)
         self.local_proj = nn.Sequential(
-            nn.Linear(3 + dim, dim),
+            nn.Linear(3, dim),
             nn.ReLU(),
             nn.Linear(dim, dim)
         )
@@ -135,8 +135,8 @@ class SpatialPMA(nn.Module):
 
         relative_pos = local_x - anchors[:, :, None, :] # [B, M, K, 3]
 
-        local_token = torch.concat((local_h, relative_pos), dim=-1) # [B, M, K, 3+D]
-        local_token = self.local_proj(local_token)
+        rel_emb = self.local_proj(relative_pos) # [B, M, K, D]
+        local_token = local_h + rel_emb # [B, M, K, D]
         B, M, K, D = local_token.shape[:]
         local_token = local_token.reshape(B * M, K, D) # [B*M, K, D]
         slots = self.pma(local_token) # [B*M, 1, D]
