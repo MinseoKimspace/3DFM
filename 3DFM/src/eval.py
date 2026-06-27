@@ -10,6 +10,7 @@ import torch
 
 from fm.sampler import sample_euler
 from models.builder import build_model
+from models.point_ops import farthest_point_sample, index_points
 
 
 def load_points(path: str | Path) -> torch.Tensor:
@@ -118,6 +119,68 @@ def compute_local_cd(
     }
 
 
+def parse_cd_points(values: list[str]) -> list[int | str]:
+    levels = []
+    for value in values:
+        if value == "full":
+            levels.append("full")
+        else:
+            levels.append(int(value))
+    return levels
+
+
+@torch.no_grad()
+def downsample_fps(
+    points: torch.Tensor,
+    num_points: int,
+    batch_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    if num_points >= points.shape[1]:
+        return points
+
+    out = []
+    for start in range(0, points.shape[0], batch_size):
+        batch = points[start:start + batch_size].to(device)
+        idx = farthest_point_sample(batch, num_points, random_start=False)
+        out.append(index_points(batch, idx).cpu())
+    return torch.cat(out, dim=0)
+
+
+def compute_cd_levels(
+    samples: torch.Tensor,
+    refs: torch.Tensor,
+    levels: list[int | str],
+    batch_size: int,
+    device: torch.device,
+) -> dict[str, float]:
+    result = {}
+
+    for level in levels:
+        if level == "full":
+            level_samples = samples
+            level_refs = refs
+            suffix = "full"
+        else:
+            level_samples = downsample_fps(samples, level, batch_size, device)
+            level_refs = downsample_fps(refs, level, batch_size, device)
+            suffix = str(level)
+
+        row = compute_local_cd(
+            samples=level_samples,
+            refs=level_refs,
+            batch_size=batch_size,
+            device=device,
+        )
+        for key, value in row.items():
+            result[f"{key}@{suffix}"] = value
+
+        if level == "full":
+            result.update(row)
+
+    return result
+
+
 def collect_sample_paths(eval_dir: str | Path) -> list[Path]:
     root = Path(eval_dir)
     paths = sorted(root.glob("nfe_*/samples.pt"))
@@ -197,6 +260,7 @@ def sample_checkpoint(
 
 def eval_checkpoints_cd(args: argparse.Namespace) -> None:
     device = choose_device(args.device)
+    cd_levels = parse_cd_points(args.cd_points)
     refs = load_points(args.refs)
     if args.max_refs > 0:
         refs = refs[:args.max_refs]
@@ -251,9 +315,10 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
                 if args.max_samples > 0:
                     samples = samples[:args.max_samples]
 
-                row = compute_local_cd(
+                row = compute_cd_levels(
                     samples=samples,
                     refs=refs,
+                    levels=cd_levels,
                     batch_size=args.cd_batch_size,
                     device=device,
                 )
@@ -269,9 +334,14 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
                     }
                 )
                 results["rows"].append(row)
+                cd_msg = " ".join(
+                    f"CD@{level}={row[f'CD@{level}']:.6f}"
+                    for level in args.cd_points
+                    if f"CD@{level}" in row
+                )
                 print(
                     f"{label} mode={mode} NFE={nfe}: "
-                    f"CD={row['CD']:.6f} Ref-CD={row['Ref-CD']:.6f}"
+                    f"{cd_msg}"
                 )
 
     if args.output:
@@ -301,6 +371,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--cd-only", action="store_true")
     parser.add_argument("--cd-batch-size", type=int, default=4)
+    parser.add_argument("--cd-points", type=str, nargs="+", default=["full"])
     parser.add_argument("--metric-batch-size", type=int, default=32)
     parser.add_argument("--lion-root", type=str, default="")
     parser.add_argument("--compute-emd", action="store_true")
@@ -317,6 +388,7 @@ def main() -> None:
         return
 
     device = choose_device(args.device)
+    cd_levels = parse_cd_points(args.cd_points)
     if not args.cd_only:
         from metrics.lion_backend import add_lion_root, compute_lion_metrics
         add_lion_root(args.lion_root)
@@ -341,9 +413,10 @@ def main() -> None:
         print(f"evaluating {label}: samples={tuple(samples.shape)} refs={tuple(refs.shape)}")
 
         if args.cd_only:
-            row = compute_local_cd(
+            row = compute_cd_levels(
                 samples=samples,
                 refs=refs,
+                levels=cd_levels,
                 batch_size=args.cd_batch_size,
                 device=device,
             )
