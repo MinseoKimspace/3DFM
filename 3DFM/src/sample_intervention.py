@@ -13,6 +13,7 @@ from visualize import save_point_cloud_ply
 
 
 SLOT_MODES = ("normal", "shuffle", "zero")
+COND_MODES = ("normal", "shuffle", "zero")
 
 
 def choose_device(name: str) -> torch.device:
@@ -27,6 +28,18 @@ def build_model_from_checkpoint(ckpt: dict, device: torch.device) -> torch.nn.Mo
     model.load_state_dict(ckpt["model"])
     model.eval()
     return model
+
+
+def choose_intervention(model: torch.nn.Module, train_args: dict) -> tuple[str, tuple[str, ...], str]:
+    arch = train_args.get("arch", "base")
+
+    if hasattr(model, "spatial_pma"):
+        return "slot_mode", SLOT_MODES, "spatial_pma"
+
+    if arch == "xhat_selfcond" and getattr(model, "use_xhat_condition", False):
+        return "cond_mode", COND_MODES, "xhat_selfcond"
+
+    return "", ("normal",), "none"
 
 
 def load_or_make_noise(
@@ -63,9 +76,11 @@ def sample_mode_in_batches(
     nfe: int,
     batch_size: int,
     device: torch.device,
-    slot_mode: str,
+    mode_arg: str,
+    mode: str,
 ) -> tuple[torch.Tensor, float]:
     samples = []
+    model_kwargs = {mode_arg: mode} if mode_arg else {}
 
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -81,7 +96,7 @@ def sample_mode_in_batches(
             device=device,
             dtype=init.dtype,
             init=init,
-            model_kwargs={"slot_mode": slot_mode},
+            model_kwargs=model_kwargs,
         )
         samples.append(sample.cpu())
 
@@ -118,10 +133,11 @@ def main() -> None:
 
     ckpt = torch.load(args.checkpoint, map_location="cpu")
     model = build_model_from_checkpoint(ckpt, device=device)
-    if not hasattr(model, "spatial_pma"):
-        raise ValueError("Intervention sampling requires a spatial_pma model.")
-
     train_args = ckpt["args"]
+    mode_arg, modes, intervention_type = choose_intervention(model, train_args)
+    if intervention_type == "none":
+        print("No intervention branch found. Saving normal samples only.")
+
     num_points = train_args["num_points"]
     noise = load_or_make_noise(
         path=args.noise,
@@ -146,7 +162,9 @@ def main() -> None:
         "seed": args.seed,
         "noise": args.noise,
         "nfe": args.nfe,
-        "modes": SLOT_MODES,
+        "intervention_type": intervention_type,
+        "mode_arg": mode_arg,
+        "modes": modes,
         "results": {},
     }
 
@@ -154,7 +172,7 @@ def main() -> None:
         samples_by_mode = {}
         summary["results"][str(nfe)] = {}
 
-        for mode in SLOT_MODES:
+        for mode in modes:
             if mode == "shuffle":
                 torch.manual_seed(args.seed + nfe)
                 if torch.cuda.is_available():
@@ -166,7 +184,8 @@ def main() -> None:
                 nfe=nfe,
                 batch_size=args.batch_size,
                 device=device,
-                slot_mode=mode,
+                mode_arg=mode_arg,
+                mode=mode,
             )
             samples_by_mode[mode] = samples
 
@@ -191,7 +210,9 @@ def main() -> None:
             )
 
         normal = samples_by_mode["normal"]
-        for mode in ("shuffle", "zero"):
+        for mode in modes:
+            if mode == "normal":
+                continue
             summary["results"][str(nfe)][mode]["rel_sample_diff_vs_normal"] = (
                 relative_sample_diff(normal, samples_by_mode[mode])
             )

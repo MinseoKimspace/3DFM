@@ -208,13 +208,19 @@ class XHatSelfCondBackbone(nn.Module):
         self.global_proj = nn.Linear(hidden_dim, hidden_dim)
         self.out = nn.Linear(hidden_dim, 3)
 
-    def forward(self, z: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        return self.forward_with_aux(z, t)["velocity"]
+    def forward(
+            self,
+            z: torch.Tensor,
+            t: torch.Tensor,
+            cond_mode: str = "normal",
+            ) -> torch.Tensor:
+        return self.forward_with_aux(z, t, cond_mode=cond_mode)["velocity"]
     
     def forward_with_aux(
             self,
             z: torch.Tensor,# [B, N, 3]
             t: torch.Tensor,# [B, 1, 1]
+            cond_mode: str = "normal",
             ) -> dict:
         
         h = self.point_embed(z) # [B, N, D]
@@ -230,7 +236,25 @@ class XHatSelfCondBackbone(nn.Module):
         if self.use_xhat_condition:
             x_code = self.xhat_embed(x_hat1) # [B, N, D]
             x_code = x_code.mean(dim=1, keepdim=True) # [B, 1, D]
-            h = h + self.global_proj(x_code) # broadcast: [B, N, D] + [B, 1, D]
+
+            if cond_mode == "shuffle": # use x_hat1 code from another sample
+                batch_size = x_code.shape[0]
+                if batch_size > 1:
+                    perm = torch.randperm(batch_size, device=x_code.device)
+                    if torch.equal(perm, torch.arange(batch_size, device=x_code.device)):
+                        perm = torch.roll(perm, shifts=1)
+                    x_code = x_code[perm]
+                cond = self.global_proj(x_code)
+            elif cond_mode == "zero": # remove the conditioning contribution
+                cond = torch.zeros_like(self.global_proj(x_code))
+            elif cond_mode == "normal":
+                cond = self.global_proj(x_code)
+            else:
+                raise ValueError(f"Unknown cond_mode: {cond_mode}")
+
+            h = h + cond # broadcast: [B, N, D] + [B, 1, D]
+        elif cond_mode != "normal":
+            raise ValueError("cond_mode intervention requires use_xhat_condition=True.")
     
         for block in self.blocks[self.early_layers:]:
             h = block(h)
