@@ -4,7 +4,7 @@ from __future__ import annotations
 # https://github.com/stevenygd/PointFlow/blob/master/datasets.py
 #
 # Keep this file intentionally close to PointFlow's dataset conventions:
-# - category/split/*.npy files with 15000 surface-sampled points
+# - category/_/split/*.npy files with 15000 surface-sampled points
 # - deterministic object order shuffle with seed 38383
 # - optional global vs per-shape normalization
 # - first 10000 points as train_points, last 5000 as test_points
@@ -118,12 +118,10 @@ class Uniform15KPC(Dataset):
         self.all_cate_mids = []
 
         for cate_idx, subdir in enumerate(subdirs):
-            sub_path = os.path.join(self.root_dir, subdir, self.split)
-            if not os.path.isdir(sub_path):
-                raise FileNotFoundError(f"Missing PointFlow split directory: {sub_path}")
+            sub_path, mid_prefix = find_split_dir(self.root_dir, subdir, self.split)
 
             mids = sorted(
-                os.path.join(self.split, name[:-4])
+                os.path.join(mid_prefix, name[:-4])
                 for name in os.listdir(sub_path)
                 if name.endswith(".npy")
             )
@@ -131,7 +129,7 @@ class Uniform15KPC(Dataset):
                 raise FileNotFoundError(f"No .npy files found in {sub_path}")
 
             for mid in mids:
-                obj_fname = os.path.join(self.root_dir, subdir, mid + ".npy")
+                obj_fname = os.path.join(self.root_dir, mid + ".npy")
                 point_cloud = np.load(obj_fname).astype("float32")
                 if point_cloud.shape != (15000, input_dim):
                     raise ValueError(
@@ -265,6 +263,22 @@ def category_to_synset(category: str) -> str:
     if category.isdigit():
         return category
     raise ValueError(f"Unknown PointFlow category: {category}")
+
+
+def find_split_dir(root_dir: str | Path, subdir: str, split: str) -> tuple[str, str]:
+    root = Path(root_dir)
+    candidates = [
+        (root / subdir / "_" / split, os.path.join(subdir, "_", split)),
+    ]
+    for path, mid_prefix in candidates:
+        if path.is_dir():
+            return str(path), mid_prefix
+
+    tried = "\n".join(f"  {path}" for path, _ in candidates)
+    raise FileNotFoundError(
+        "Missing PointFlow split directory. Tried:\n"
+        f"{tried}"
+    )
 
 
 def load_pointflow_15k(root: str | Path, category: str, split: str) -> np.ndarray:
