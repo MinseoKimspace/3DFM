@@ -4,3 +4,4 @@ open3d
 PyYAML
 matplotlib
 mitsuba
+numpy

@@ -34,3 +34,16 @@ Source: https://github.com/nv-tlabs/LION
 
 This project does not vendor LION metric source code. Evaluation code may import
 LION as an external backend when the user provides a local LION checkout.
+
+## PointFlow ShapeNetCore.v2.PC15k Loader
+
+Source: https://github.com/stevenygd/PointFlow  
+File: `datasets.py`  
+License: MIT License
+
+Used for: ShapeNetCore.v2.PC15k loading conventions and the
+`Uniform15KPC` / `ShapeNet15kPointClouds` dataset structure.
+
+Notes: The implementation in this project is copied/adapted to return tensors
+for the local Flow Matching training loop while preserving PointFlow's split,
+normalization, and 10k/5k point-pool conventions.

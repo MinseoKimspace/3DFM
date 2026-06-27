@@ -12,11 +12,12 @@ def load_single_pyg_shape(
     num_points: int,
     split: str = "train",
     index: int = 0,
+    replace: bool = False,
 ) -> torch.Tensor:
     # shape : [N, 3]
     transform = T.Compose([
         T.NormalizeScale(),
-        T.FixedPoints(num_points, replace=False)
+        T.FixedPoints(num_points, replace=replace)
     ])
 
     dataset = ShapeNet(
@@ -42,10 +43,11 @@ def load_pyg_shapes(
     split: str = "train",
     start_index: int = 0,
     num_shapes: int = 1,
+    replace: bool = False,
 ) -> torch.Tensor:
     transform = T.Compose([
         T.NormalizeScale(),
-        T.FixedPoints(num_points, replace=False)
+        T.FixedPoints(num_points, replace=replace)
     ])
 
     dataset = ShapeNet(
@@ -76,10 +78,11 @@ def build_pyg_point_cache(
     split: str,
     out_path: str | Path,
     max_shapes: int | None = None,
+    replace: bool = False,
 ) -> None:
     transform = T.Compose([
         T.NormalizeScale(),
-        T.FixedPoints(num_points, replace=False)
+        T.FixedPoints(num_points, replace=replace)
     ])
 
     dataset = ShapeNet(

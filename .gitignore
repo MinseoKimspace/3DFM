@@ -20,6 +20,8 @@ Thumbs.db
 
 # Local data
 data/
+!3DFM/src/data/
+!3DFM/src/data/*.py
 3DFM/src/data/shapenet_pyg/
 3DFM/src/data/**/*.zip
 3DFM/src/data/**/*.tar

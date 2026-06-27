@@ -6,10 +6,11 @@ from pathlib import Path
 import torch
 import yaml
 
-from data.pyg_shapenet import load_pyg_shapes
+from data.pointflow_pc15k import load_pointflow_shapes, stats_to_torch
 from fm.losses import fm_loss
 from fm.sampler import sample_euler
 from models.builder import build_model
+from models.point_ops import farthest_point_sample, index_points
 from visualize import save_point_cloud_ply
 
 
@@ -35,7 +36,11 @@ def parse_args() -> argparse.Namespace:
     config_args, _ = config_parser.parse_known_args()
 
     parser = argparse.ArgumentParser(parents=[config_parser])
-    parser.add_argument("--data-mode", choices=["file", "shapenet"], default="shapenet")
+    parser.add_argument(
+        "--data-mode",
+        choices=["file", "shapenet", "pointflow"],
+        default="shapenet",
+    )
     parser.add_argument("--shape-path", type=str, default="")
     parser.add_argument("--data-root", type=str, default="3DFM/src/data/shapenet_pyg")
     parser.add_argument("--category", type=str, default="Chair")
@@ -43,7 +48,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shape-index", type=int, default=0)
     parser.add_argument("--num-shapes", type=int, default=1)
     parser.add_argument("--num-points", type=int, default=1024)
+    parser.add_argument(
+        "--fixed-points-replace",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     parser.add_argument("--target-order", choices=["fixed", "shuffle"], default="fixed")
+    parser.add_argument("--target-subsample", choices=["none", "random", "fps"], default="none")
+    parser.add_argument("--pointflow-part", choices=["train", "test", "all"], default="train")
+    parser.add_argument(
+        "--pointflow-normalize",
+        choices=["global", "per_shape"],
+        default="global",
+    )
+    parser.add_argument("--pointflow-normalize-std-per-axis", action="store_true")
 
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--steps", type=int, default=2000)
@@ -81,32 +99,57 @@ def choose_device(name: str) -> torch.device:
     return torch.device(name)
 
 
-def load_targets(args: argparse.Namespace) -> torch.Tensor:
+def load_targets(args: argparse.Namespace) -> tuple[torch.Tensor, dict[str, object]]:
     if args.data_mode == "file":
         obj = torch.load(args.shape_path, map_location="cpu")
         points = obj["points"] if isinstance(obj, dict) else obj
         if points.ndim == 2:
-            return points.unsqueeze(0).float().contiguous()
+            return points.unsqueeze(0).float().contiguous(), {}
         if points.ndim == 3:
             start = args.shape_index
             end = start + args.num_shapes
-            return points[start:end].float().contiguous()
+            return points[start:end].float().contiguous(), {}
         raise ValueError(f"Expected [N, 3] or [S, N, 3], got {tuple(points.shape)}")
 
-    return load_pyg_shapes( # [S, N, 3]
+    if args.data_mode == "pointflow":
+        points, stats = load_pointflow_shapes(
+            root=args.data_root,
+            category=args.category,
+            split=args.split,
+            part=args.pointflow_part,
+            start_index=args.shape_index,
+            num_shapes=args.num_shapes,
+            normalize=args.pointflow_normalize,
+            normalize_std_per_axis=args.pointflow_normalize_std_per_axis,
+        )
+        info = {
+            "source": "pointflow_pc15k",
+            "split": args.split,
+            "part": args.pointflow_part,
+            "stats": stats_to_torch(stats),
+        }
+        return points, info
+
+    from data.pyg_shapenet import load_pyg_shapes
+
+    points = load_pyg_shapes( # [S, N, 3]
         root=args.data_root,
         category=args.category,
         num_points=args.num_points,
         split=args.split,
         start_index=args.shape_index,
         num_shapes=args.num_shapes,
+        replace=args.fixed_points_replace,
     )
+    return points, {}
 
 
 def make_batch(
         targets: torch.Tensor,# [S, N, 3]
         batch_size: int,
-        target_order: str
+        target_order: str,
+        num_points: int,
+        target_subsample: str,
         ) -> torch.Tensor:
     shape_indices = torch.randint(
         low=0,
@@ -115,6 +158,34 @@ def make_batch(
         device=targets.device,
     )
     batch = targets[shape_indices].clone()
+
+    pool_points = batch.shape[1]
+    if pool_points < num_points:
+        raise ValueError(
+            f"target pool has {pool_points} points, requested {num_points}."
+        )
+    if pool_points > num_points:
+        batch_count, _, coord_dim = batch.shape
+        if target_subsample == "random":
+            indices = torch.stack(
+                [
+                    torch.randperm(pool_points, device=batch.device)[:num_points]
+                    for _ in range(batch_count)
+                ],
+                dim=0,
+            )
+            batch = batch.gather(
+                dim=1,
+                index=indices.unsqueeze(-1).expand(batch_count, num_points, coord_dim),
+            )
+        elif target_subsample == "fps":
+            indices = farthest_point_sample(batch, num_points, random_start=True)
+            batch = index_points(batch, indices)
+        elif target_subsample == "none":
+            batch = batch[:, :num_points]
+        else:
+            raise ValueError(f"Unknown target_subsample: {target_subsample}")
+
     if target_order == "shuffle":
         batch_count, num_points, coord_dim = batch.shape
         indices = torch.stack(
@@ -139,10 +210,13 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    targets = load_targets(args).to(device)
+    targets, data_info = load_targets(args)
+    targets = targets.to(device)
     torch.save(targets.cpu(), out_dir / "targets.pt")
+    if data_info:
+        torch.save(data_info, out_dir / "data_info.pt")
     try:
-        save_point_cloud_ply(targets[0], out_dir / "target_000.ply")
+        save_point_cloud_ply(targets[0, :args.num_points], out_dir / "target_000.ply")
     except ImportError as exc:
         print(exc)
 
@@ -150,7 +224,13 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
     for step in range(1, args.steps + 1):
-        x_data = make_batch(targets, args.batch_size, args.target_order)
+        x_data = make_batch(
+            targets=targets,
+            batch_size=args.batch_size,
+            target_order=args.target_order,
+            num_points=args.num_points,
+            target_subsample=args.target_subsample,
+        )
 
         optimizer.zero_grad(set_to_none=True)
         loss, metrics = fm_loss(model, x_data, aux_weight=args.aux_weight)

@@ -1,0 +1,38 @@
+data:
+  data_mode: pointflow
+  data_root: 3DFM/src/data/ShapeNetCore.v2.PC15k
+  category: Chair
+  split: train
+  pointflow_part: all
+  pointflow_normalize: global
+  shape_index: 0
+  num_shapes: 10
+  num_points: 8192
+  target_subsample: random
+  target_order: shuffle
+
+model:
+  arch: spatial_pma
+  hidden_dim: 256
+  num_layers: 6
+  early_layers: 3
+  num_heads: 8
+  num_slots: 64
+  knn_k: 64
+  spatial_random_start: false
+  dropout: 0.0
+
+training:
+  batch_size: 1
+  steps: 30000
+  lr: 2.0e-4
+  seed: 42
+  log_every: 100
+  sample_every: 1000
+  device: auto
+
+sampling:
+  nfe: 64
+
+output:
+  out_dir: runs/spatial_pma_chair10_n8192

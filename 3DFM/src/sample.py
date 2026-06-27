@@ -64,6 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
     parser.add_argument("--num-samples", type=int, default=32)
+    parser.add_argument("--num-points", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--nfe", type=int, nargs="+", default=[1, 2, 4, 8, 16, 64])
     parser.add_argument("--seed", type=int, default=123)
@@ -82,7 +83,8 @@ def main() -> None:
     model = build_model_from_checkpoint(ckpt, device=device)
 
     train_args = ckpt["args"]
-    num_points = train_args["num_points"]
+    checkpoint_num_points = train_args["num_points"]
+    num_points = args.num_points if args.num_points > 0 else checkpoint_num_points
 
     generator = torch.Generator(device="cpu")
     generator.manual_seed(args.seed)
@@ -94,6 +96,7 @@ def main() -> None:
         "arch": train_args.get("arch", "base"),
         "num_samples": args.num_samples,
         "num_points": num_points,
+        "checkpoint_num_points": checkpoint_num_points,
         "seed": args.seed,
         "nfe": args.nfe,
         "times": {},
@@ -117,6 +120,7 @@ def main() -> None:
             "nfe": nfe,
             "num_samples": args.num_samples,
             "num_points": num_points,
+            "checkpoint_num_points": checkpoint_num_points,
             "seconds": elapsed,
             "seconds_per_sample": elapsed / args.num_samples,
         }

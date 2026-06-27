@@ -113,6 +113,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", type=str, required=True)
     parser.add_argument("--noise", type=str, default="")
     parser.add_argument("--num-samples", type=int, default=32)
+    parser.add_argument("--num-points", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--nfe", type=int, nargs="+", default=[1, 2, 4, 8, 16, 64])
     parser.add_argument("--seed", type=int, default=123)
@@ -138,7 +139,8 @@ def main() -> None:
     if intervention_type == "none":
         print("No intervention branch found. Saving normal samples only.")
 
-    num_points = train_args["num_points"]
+    checkpoint_num_points = train_args["num_points"]
+    num_points = args.num_points if args.num_points > 0 else checkpoint_num_points
     noise = load_or_make_noise(
         path=args.noise,
         num_samples=args.num_samples,
@@ -149,7 +151,7 @@ def main() -> None:
         raise ValueError("noise must have shape [S, N, 3].")
     if noise.shape[1] != num_points:
         raise ValueError(
-            f"noise has {noise.shape[1]} points, checkpoint expects {num_points}."
+            f"noise has {noise.shape[1]} points, requested {num_points}."
         )
 
     torch.save(noise, out_dir / "noise.pt")
@@ -159,6 +161,7 @@ def main() -> None:
         "arch": train_args.get("arch", "base"),
         "num_samples": int(noise.shape[0]),
         "num_points": num_points,
+        "checkpoint_num_points": checkpoint_num_points,
         "seed": args.seed,
         "noise": args.noise,
         "nfe": args.nfe,
