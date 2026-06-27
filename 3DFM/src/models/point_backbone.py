@@ -234,20 +234,20 @@ class XHatSelfCondBackbone(nn.Module):
 
         x_code = None
         if self.use_xhat_condition:
-            x_code = self.xhat_embed(x_hat1) # [B, N, D]
-            x_code = x_code.mean(dim=1, keepdim=True) # [B, 1, D]
+            if cond_mode == "zero": # remove the self-conditioning branch
+                cond = torch.zeros_like(h[:, :1, :])
+            elif cond_mode in ("normal", "shuffle"):
+                x_code = self.xhat_embed(x_hat1) # [B, N, D]
+                x_code = x_code.mean(dim=1, keepdim=True) # [B, 1, D]
 
-            if cond_mode == "shuffle": # use x_hat1 code from another sample
-                batch_size = x_code.shape[0]
-                if batch_size > 1:
-                    perm = torch.randperm(batch_size, device=x_code.device)
-                    if torch.equal(perm, torch.arange(batch_size, device=x_code.device)):
-                        perm = torch.roll(perm, shifts=1)
-                    x_code = x_code[perm]
-                cond = self.global_proj(x_code)
-            elif cond_mode == "zero": # remove the conditioning contribution
-                cond = torch.zeros_like(self.global_proj(x_code))
-            elif cond_mode == "normal":
+                if cond_mode == "shuffle": # use x_hat1 code from another sample
+                    batch_size = x_code.shape[0]
+                    if batch_size > 1:
+                        perm = torch.randperm(batch_size, device=x_code.device)
+                        if torch.equal(perm, torch.arange(batch_size, device=x_code.device)):
+                            perm = torch.roll(perm, shifts=1)
+                        x_code = x_code[perm]
+
                 cond = self.global_proj(x_code)
             else:
                 raise ValueError(f"Unknown cond_mode: {cond_mode}")
@@ -266,7 +266,7 @@ class XHatSelfCondBackbone(nn.Module):
             "x_hat1": x_hat1,
             "global_code": x_code,
         }
-        
+
 class XHatSpatialPMABackbone(nn.Module):
     def __init__(
             self,
