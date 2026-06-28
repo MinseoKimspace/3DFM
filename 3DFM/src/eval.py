@@ -13,8 +13,9 @@ from models.builder import build_model
 from models.point_ops import farthest_point_sample, index_points
 
 
-def load_points(path: str | Path) -> torch.Tensor:
+def load_points_with_meta(path: str | Path) -> tuple[torch.Tensor, dict]:
     obj = torch.load(path, map_location="cpu")
+    meta = obj if isinstance(obj, dict) else {}
     if isinstance(obj, dict):
         if "points" in obj:
             obj = obj["points"]
@@ -26,7 +27,37 @@ def load_points(path: str | Path) -> torch.Tensor:
             raise KeyError("Expected dict to contain `points`, `samples`, or `sample`.")
     if obj.ndim != 3 or obj.shape[-1] != 3:
         raise ValueError(f"Expected [S, N, 3], got {tuple(obj.shape)}")
-    return obj.float().contiguous()
+    return obj.float().contiguous(), meta
+
+
+def load_points(path: str | Path) -> torch.Tensor:
+    points, _ = load_points_with_meta(path)
+    return points
+
+
+def denormalize_pointflow(points: torch.Tensor, meta: dict) -> torch.Tensor:
+    stats = meta.get("stats")
+    if not isinstance(stats, dict) or "mean" not in stats or "std" not in stats:
+        raise KeyError("PointFlow denormalization needs `stats.mean` and `stats.std` in refs.")
+
+    mean = stats["mean"].float()
+    std = stats["std"].float()
+    while mean.ndim < 3:
+        mean = mean.unsqueeze(0)
+    while std.ndim < 3:
+        std = std.unsqueeze(0)
+
+    if mean.shape[0] not in (1, points.shape[0]):
+        raise ValueError(
+            "Per-shape PointFlow stats do not match points. "
+            "Use global stats or export matching refs."
+        )
+    if std.shape[0] not in (1, points.shape[0]):
+        raise ValueError(
+            "Per-shape PointFlow stats do not match points. "
+            "Use global stats or export matching refs."
+        )
+    return points * std + mean
 
 
 def choose_device(name: str) -> torch.device:
@@ -107,16 +138,53 @@ def compute_local_cd(
     refs: torch.Tensor,
     batch_size: int,
     device: torch.device,
+    include_1nna: bool = False,
 ) -> dict[str, float]:
     cd = pairwise_cd_matrix(samples, refs, batch_size=batch_size, device=device)
     sample_to_ref = cd.min(dim=1).values
+    sample_nn_ref = cd.min(dim=1).indices
     ref_to_sample = cd.min(dim=0).values
+
+    # PointFlow/L-GAN convention:
+    # MMD-CD averages over refs; MMD-CD-sample averages over generated samples.
+    coverage = sample_nn_ref.unique().numel() / refs.shape[0]
     return {
         "CD": float(sample_to_ref.mean().item()),
-        "MMD-CD": float(sample_to_ref.mean().item()),
+        "MMD-CD": float(ref_to_sample.mean().item()),
+        "MMD-CD-sample": float(sample_to_ref.mean().item()),
+        "COV-CD": float(coverage),
         "Ref-CD": float(ref_to_sample.mean().item()),
         "Pair-CD": float(cd.mean().item()),
+        **(
+            {"1-NNA-CD": compute_1nna_cd(samples, refs, batch_size, device)}
+            if include_1nna
+            else {}
+        ),
     }
+
+
+def compute_1nna_cd(
+    samples: torch.Tensor,
+    refs: torch.Tensor,
+    batch_size: int,
+    device: torch.device,
+) -> float:
+    sample_sample = pairwise_cd_matrix(samples, samples, batch_size, device)
+    ref_ref = pairwise_cd_matrix(refs, refs, batch_size, device)
+    sample_ref = pairwise_cd_matrix(samples, refs, batch_size, device)
+
+    sample_sample.fill_diagonal_(float("inf"))
+    ref_ref.fill_diagonal_(float("inf"))
+
+    sample_nn_same = sample_sample.min(dim=1).values
+    sample_nn_other = sample_ref.min(dim=1).values
+    ref_nn_same = ref_ref.min(dim=1).values
+    ref_nn_other = sample_ref.min(dim=0).values
+
+    sample_correct = sample_nn_same < sample_nn_other
+    ref_correct = ref_nn_same < ref_nn_other
+    acc = torch.cat([sample_correct, ref_correct]).float().mean()
+    return float(acc.item())
 
 
 def parse_cd_points(values: list[str]) -> list[int | str]:
@@ -153,6 +221,7 @@ def compute_cd_levels(
     levels: list[int | str],
     batch_size: int,
     device: torch.device,
+    include_1nna: bool = False,
 ) -> dict[str, float]:
     result = {}
 
@@ -171,6 +240,7 @@ def compute_cd_levels(
             refs=level_refs,
             batch_size=batch_size,
             device=device,
+            include_1nna=include_1nna,
         )
         for key, value in row.items():
             result[f"{key}@{suffix}"] = value
@@ -179,6 +249,58 @@ def compute_cd_levels(
             result.update(row)
 
     return result
+
+
+def permute_points_per_cloud(points: torch.Tensor, seed: int) -> torch.Tensor:
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(seed)
+    rows = []
+    for cloud in points:
+        idx = torch.randperm(cloud.shape[0], generator=generator)
+        rows.append(cloud[idx])
+    return torch.stack(rows, dim=0).contiguous()
+
+
+def compute_permutation_check(
+    samples: torch.Tensor,
+    refs: torch.Tensor,
+    levels: list[int | str],
+    batch_size: int,
+    device: torch.device,
+    seed: int,
+) -> dict[str, float]:
+    samples_perm = permute_points_per_cloud(samples, seed)
+    refs_perm = permute_points_per_cloud(refs, seed + 1)
+
+    orig = compute_cd_levels(samples, refs, levels, batch_size, device)
+    perm = compute_cd_levels(samples_perm, refs_perm, levels, batch_size, device)
+
+    out = {}
+    for level in levels:
+        suffix = "full" if level == "full" else str(level)
+        key = f"CD@{suffix}"
+        if key in orig and key in perm:
+            delta = perm[key] - orig[key]
+            out[f"perm_{key}_orig"] = orig[key]
+            out[f"perm_{key}_shuffled"] = perm[key]
+            out[f"perm_{key}_abs_delta"] = abs(delta)
+            out[f"perm_{key}_rel_delta"] = abs(delta) / (abs(orig[key]) + 1e-8)
+
+    for level in levels:
+        if level == "full":
+            continue
+        sample_fps = downsample_fps(samples, level, batch_size, device).to(device)
+        sample_perm_fps = downsample_fps(samples_perm, level, batch_size, device).to(device)
+        ref_fps = downsample_fps(refs, level, batch_size, device).to(device)
+        ref_perm_fps = downsample_fps(refs_perm, level, batch_size, device).to(device)
+        out[f"fps_self_CD_samples@{level}"] = float(
+            chamfer_paired(sample_fps, sample_perm_fps).mean().item()
+        )
+        out[f"fps_self_CD_refs@{level}"] = float(
+            chamfer_paired(ref_fps, ref_perm_fps).mean().item()
+        )
+
+    return out
 
 
 def density_stats(
@@ -333,9 +455,11 @@ def sample_checkpoint(
 def eval_checkpoints_cd(args: argparse.Namespace) -> None:
     device = choose_device(args.device)
     cd_levels = parse_cd_points(args.cd_points)
-    refs = load_points(args.refs)
+    refs, refs_meta = load_points_with_meta(args.refs)
     if args.max_refs > 0:
         refs = refs[:args.max_refs]
+    if args.pointflow_denorm:
+        refs = denormalize_pointflow(refs, refs_meta)
 
     labels = args.labels
     if labels and len(labels) != len(args.checkpoints):
@@ -361,6 +485,7 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
         "num_samples": int(noise.shape[0]),
         "num_points": num_points,
         "nfe": args.nfe,
+        "pointflow_denorm": bool(args.pointflow_denorm),
         "rows": [],
     }
 
@@ -387,6 +512,8 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
                 )
                 if args.max_samples > 0:
                     samples = samples[:args.max_samples]
+                if args.pointflow_denorm:
+                    samples = denormalize_pointflow(samples, refs_meta)
 
                 row = compute_cd_levels(
                     samples=samples,
@@ -394,7 +521,19 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
                     levels=cd_levels,
                     batch_size=args.cd_batch_size,
                     device=device,
+                    include_1nna=args.one_nna_cd,
                 )
+                if args.permutation_check:
+                    row.update(
+                        compute_permutation_check(
+                            samples=samples,
+                            refs=refs,
+                            levels=cd_levels,
+                            batch_size=args.cd_batch_size,
+                            device=device,
+                            seed=args.permutation_seed,
+                        )
+                    )
                 row.update(attention_stats)
                 if args.density:
                     row.update(
@@ -461,6 +600,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cd-only", action="store_true")
     parser.add_argument("--cd-batch-size", type=int, default=4)
     parser.add_argument("--cd-points", type=str, nargs="+", default=["full"])
+    parser.add_argument("--pointflow-denorm", action="store_true")
+    parser.add_argument("--one-nna-cd", action="store_true")
+    parser.add_argument("--permutation-check", action="store_true")
+    parser.add_argument("--permutation-seed", type=int, default=12345)
     parser.add_argument("--attention-stats", action="store_true")
     parser.add_argument("--density", action="store_true")
     parser.add_argument("--density-k", type=int, default=4)
@@ -486,9 +629,11 @@ def main() -> None:
         from metrics.lion_backend import add_lion_root, compute_lion_metrics
         add_lion_root(args.lion_root)
 
-    refs = load_points(args.refs)
+    refs, refs_meta = load_points_with_meta(args.refs)
     if args.max_refs > 0:
         refs = refs[:args.max_refs]
+    if args.pointflow_denorm:
+        refs = denormalize_pointflow(refs, refs_meta)
 
     sample_paths = [Path(p) for p in args.samples]
     if args.eval_dir:
@@ -501,6 +646,8 @@ def main() -> None:
         samples = load_points(path)
         if args.max_samples > 0:
             samples = samples[:args.max_samples]
+        if args.pointflow_denorm:
+            samples = denormalize_pointflow(samples, refs_meta)
 
         label = metric_name_from_path(path) if path.name == "samples.pt" else path.stem
         print(f"evaluating {label}: samples={tuple(samples.shape)} refs={tuple(refs.shape)}")
@@ -512,6 +659,7 @@ def main() -> None:
                 levels=cd_levels,
                 batch_size=args.cd_batch_size,
                 device=device,
+                include_1nna=args.one_nna_cd,
             )
         else:
             row = compute_lion_metrics(
@@ -532,6 +680,17 @@ def main() -> None:
                     k=args.density_k,
                     batch_size=args.density_batch_size,
                     device=device,
+                )
+            )
+        if args.permutation_check:
+            row.update(
+                compute_permutation_check(
+                    samples=samples,
+                    refs=refs,
+                    levels=cd_levels,
+                    batch_size=args.cd_batch_size,
+                    device=device,
+                    seed=args.permutation_seed,
                 )
             )
 
