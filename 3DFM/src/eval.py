@@ -181,6 +181,48 @@ def compute_cd_levels(
     return result
 
 
+def density_stats(
+    points: torch.Tensor,
+    k: int,
+    batch_size: int,
+    device: torch.device,
+) -> dict[str, float]:
+    values = []
+    for start in range(0, points.shape[0], batch_size):
+        batch = points[start:start + batch_size].to(device)
+        dist = torch.cdist(batch, batch) # [B, N, N]
+        knn = dist.topk(k=k + 1, dim=-1, largest=False).values[..., 1:]
+        values.append(knn.reshape(-1).cpu())
+
+    d = torch.cat(values, dim=0)
+    return {
+        "mean": float(d.mean().item()),
+        "p50": float(torch.quantile(d, 0.50).item()),
+        "p95": float(torch.quantile(d, 0.95).item()),
+        "near_zero_frac": float((d < 1e-4).float().mean().item()),
+    }
+
+
+def compute_density_comparison(
+    samples: torch.Tensor,
+    refs: torch.Tensor,
+    k: int,
+    batch_size: int,
+    device: torch.device,
+) -> dict[str, float]:
+    sample = density_stats(samples, k=k, batch_size=batch_size, device=device)
+    ref = density_stats(refs, k=k, batch_size=batch_size, device=device)
+    out = {}
+    for key, value in sample.items():
+        out[f"sample_knn{k}_{key}"] = value
+    for key, value in ref.items():
+        out[f"ref_knn{k}_{key}"] = value
+    out[f"density_knn{k}_mean_ratio"] = sample["mean"] / (ref["mean"] + 1e-8)
+    out[f"density_knn{k}_p50_ratio"] = sample["p50"] / (ref["p50"] + 1e-8)
+    out[f"density_knn{k}_p95_ratio"] = sample["p95"] / (ref["p95"] + 1e-8)
+    return out
+
+
 def collect_sample_paths(eval_dir: str | Path) -> list[Path]:
     root = Path(eval_dir)
     paths = sorted(root.glob("nfe_*/samples.pt"))
@@ -216,6 +258,30 @@ def supports_xhat_condition(model: torch.nn.Module, train_args: object) -> bool:
     return arch == "xhat_selfcond" and bool(getattr(model, "use_xhat_condition", False))
 
 
+def intervention_arg(model: torch.nn.Module, train_args: object) -> str:
+    if hasattr(model, "spatial_pma"):
+        return "slot_mode"
+    if supports_xhat_condition(model, train_args):
+        return "cond_mode"
+    return ""
+
+
+def set_attention_stats(model: torch.nn.Module, enabled: bool) -> None:
+    for module in model.modules():
+        if hasattr(module, "collect_stats"):
+            module.collect_stats = enabled
+        if hasattr(module, "reset_last_stats"):
+            module.reset_last_stats()
+
+
+def collect_attention_stats(model: torch.nn.Module) -> dict[str, float]:
+    for module in model.modules():
+        stats = getattr(module, "last_stats", {})
+        if stats:
+            return {f"xattn_{key}": value for key, value in stats.items()}
+    return {}
+
+
 @torch.no_grad()
 def sample_checkpoint(
     model: torch.nn.Module,
@@ -225,13 +291,17 @@ def sample_checkpoint(
     batch_size: int,
     device: torch.device,
     mode: str,
-) -> tuple[torch.Tensor, float]:
+    attention_stats: bool,
+) -> tuple[torch.Tensor, float, dict[str, float]]:
     samples = []
     model_kwargs = {}
-    if supports_xhat_condition(model, train_args):
-        model_kwargs["cond_mode"] = mode
+    mode_arg = intervention_arg(model, train_args)
+    if mode_arg:
+        model_kwargs[mode_arg] = mode
     elif mode != "normal":
-        raise ValueError("Only xhat_selfcond supports normal/zero intervention.")
+        raise ValueError("This model does not support intervention modes.")
+
+    set_attention_stats(model, attention_stats)
 
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -254,8 +324,10 @@ def sample_checkpoint(
     if device.type == "cuda":
         torch.cuda.synchronize()
     elapsed = time.perf_counter() - start_time
+    stats = collect_attention_stats(model) if attention_stats else {}
+    set_attention_stats(model, False)
 
-    return torch.cat(samples, dim=0), elapsed
+    return torch.cat(samples, dim=0), elapsed, stats
 
 
 def eval_checkpoints_cd(args: argparse.Namespace) -> None:
@@ -299,11 +371,11 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
 
     for path, label, model, train_args in checkpoint_items:
         arch = str(get_arg(train_args, "arch", "base"))
-        modes = args.modes if supports_xhat_condition(model, train_args) else ["normal"]
+        modes = args.modes if intervention_arg(model, train_args) else ["normal"]
 
         for nfe in args.nfe:
             for mode in modes:
-                samples, elapsed = sample_checkpoint(
+                samples, elapsed, attention_stats = sample_checkpoint(
                     model=model,
                     train_args=train_args,
                     noise=noise,
@@ -311,6 +383,7 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
                     batch_size=args.batch_size,
                     device=device,
                     mode=mode,
+                    attention_stats=args.attention_stats,
                 )
                 if args.max_samples > 0:
                     samples = samples[:args.max_samples]
@@ -322,6 +395,17 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
                     batch_size=args.cd_batch_size,
                     device=device,
                 )
+                row.update(attention_stats)
+                if args.density:
+                    row.update(
+                        compute_density_comparison(
+                            samples=samples,
+                            refs=refs,
+                            k=args.density_k,
+                            batch_size=args.density_batch_size,
+                            device=device,
+                        )
+                    )
                 row.update(
                     {
                         "label": label,
@@ -339,9 +423,14 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
                     for level in args.cd_points
                     if f"CD@{level}" in row
                 )
+                attn_msg = (
+                    f" xattn_delta={row['xattn_delta_h_rel_norm']:.6f}"
+                    if "xattn_delta_h_rel_norm" in row
+                    else ""
+                )
                 print(
                     f"{label} mode={mode} NFE={nfe}: "
-                    f"{cd_msg}"
+                    f"{cd_msg}{attn_msg}"
                 )
 
     if args.output:
@@ -372,6 +461,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cd-only", action="store_true")
     parser.add_argument("--cd-batch-size", type=int, default=4)
     parser.add_argument("--cd-points", type=str, nargs="+", default=["full"])
+    parser.add_argument("--attention-stats", action="store_true")
+    parser.add_argument("--density", action="store_true")
+    parser.add_argument("--density-k", type=int, default=4)
+    parser.add_argument("--density-batch-size", type=int, default=1)
     parser.add_argument("--metric-batch-size", type=int, default=32)
     parser.add_argument("--lion-root", type=str, default="")
     parser.add_argument("--compute-emd", action="store_true")
@@ -430,6 +523,17 @@ def main() -> None:
                 verbose=not args.quiet,
             )
             row = to_jsonable(row)
+
+        if args.density:
+            row.update(
+                compute_density_comparison(
+                    samples=samples,
+                    refs=refs,
+                    k=args.density_k,
+                    batch_size=args.density_batch_size,
+                    device=device,
+                )
+            )
 
         time_info = read_time(path)
         if time_info is not None:
