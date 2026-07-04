@@ -2,7 +2,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 from models.spatial_pma import SpatialPMA
-from models.slot_attention import KNNSlotReadBlock, SlotCrossAttentionBlock
+from models.slot_attention import SlotCrossAttentionBlock
 
 class TimeEmbedding(nn.Module):
 
@@ -370,134 +370,6 @@ class XHatSpatialPMABackbone(nn.Module):
 
             if self.xattn_every_late_block or i == 0:
                 h = self.slot_cross_attn(h, slots)
-    
-        velocity = self.out(h) # [B, N, 3]
-        return {
-            "velocity": velocity,
-            "aux_velocity": v_aux,
-            "x_hat1": x_hat1,
-        }
-
-
-class XHatKNNSpatialPMABackbone(nn.Module):
-    def __init__(
-            self,
-            num_points: int = 1024,
-            hidden_dim: int = 128,
-            num_layers: int = 4,
-            early_layers: int = 2,
-            num_heads: int = 4,
-            num_slots: int = 16,
-            knn_k: int = 32,
-            slot_read_k: int = 1,
-            slot_coord_detach: bool = False,
-            spatial_random_start: bool = False,
-            xattn_every_late_block: bool = False,
-            dropout: float = 0.0,
-            ) -> None:
-        super().__init__()
-        if not (0 <= early_layers < num_layers):
-            raise ValueError("early_layers must be in [0, num_layers).")
-        if num_slots > num_points:
-            raise ValueError("num_slots must be <= num_points.")
-        if knn_k > num_points:
-            raise ValueError("knn_k must be <= num_points.")
-        if slot_read_k < 1:
-            raise ValueError("slot_read_k must be >= 1.")
-        if slot_read_k > num_slots:
-            raise ValueError("slot_read_k must be <= num_slots.")
-
-        self.num_points = num_points
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        self.early_layers = early_layers
-        self.num_heads = num_heads
-        self.num_slots = num_slots
-        self.knn_k = knn_k
-        self.slot_read_k = slot_read_k
-        self.slot_coord_detach = slot_coord_detach
-        self.dropout = dropout
-        self.xattn_every_late_block = xattn_every_late_block
-        self.point_embed = nn.Linear(3, hidden_dim)
-        self.time_embed = TimeEmbedding(hidden_dim)
-        self.aux_head = nn.Linear(hidden_dim, 3)
-        self.out = nn.Linear(hidden_dim, 3)
-
-        self.blocks = nn.ModuleList([
-            nn.TransformerEncoderLayer(
-                d_model=hidden_dim,
-                nhead=num_heads,
-                dim_feedforward=hidden_dim * 4,
-                dropout=dropout,
-                activation="gelu",
-                batch_first=True,
-                norm_first=True,
-            )
-            for _ in range(num_layers)
-        ])
-
-        self.spatial_pma = SpatialPMA(
-            M=num_slots,
-            K=knn_k,
-            random_start=spatial_random_start,
-            dim=hidden_dim,
-            num_heads=num_heads,
-            dropout=dropout,
-        )
-
-        self.slot_cross_attn = KNNSlotReadBlock(
-            dim=hidden_dim,
-            num_heads=num_heads,
-            slot_read_k=slot_read_k,
-            dropout=dropout,
-        )
-
-    def forward(self, z, t, slot_mode="normal"):
-        return self.forward_with_aux(z, t, slot_mode=slot_mode)["velocity"]
-    
-    def forward_with_aux(
-            self,
-            z: torch.Tensor,# [B, N, 3]
-            t: torch.Tensor,# [B, 1, 1]
-            slot_mode: str = "normal",
-            ) -> dict:
-        
-        h = self.point_embed(z) # [B, N, D]
-        h = h + self.time_embed(t) # [B, N, D]
-    
-        for block in self.blocks[:self.early_layers]:
-            h = block(h)
-    
-        v_aux = self.aux_head(h) # [B, N, 3]
-        x_hat1 = z + (1.0 - t) * v_aux # [B, N, 3]
-        slot_pos = x_hat1.detach() if self.slot_coord_detach else x_hat1
-
-        slots, anchors = self.spatial_pma(slot_pos, h, return_anchors=True)
-        if slot_mode == "zero": # remove the slot read branch
-            pass
-        elif slot_mode == "shuffle": # use slots and anchors from another sample
-            batch_size = slots.shape[0]
-            if batch_size > 1:
-                perm = torch.randperm(batch_size, device=slots.device)
-                if torch.equal(perm, torch.arange(batch_size, device=slots.device)):
-                    perm = torch.roll(perm, shifts=1)
-                slots = slots[perm]
-                anchors = anchors[perm]
-        elif slot_mode == "normal": # use slots from the same sample
-            pass
-        else:
-            raise ValueError(f"Unknown slot_mode: {slot_mode}")
-    
-        for i, block in enumerate(self.blocks[self.early_layers:]):
-            h = block(h)
-
-            if slot_mode != "zero" and (self.xattn_every_late_block or i == 0):
-                h = self.slot_cross_attn(
-                    h,
-                    slots,
-                    point_pos=slot_pos,
-                    anchors=anchors,
-                )
     
         velocity = self.out(h) # [B, N, 3]
         return {

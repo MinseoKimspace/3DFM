@@ -121,8 +121,7 @@ class SpatialPMA(nn.Module):
         self,
         x_t: torch.Tensor, # [B, N, 3]  current point positions
         h: torch.Tensor, # [B, N, D]  intermediate point tokens
-        return_anchors: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         
         anchor_idx = farthest_point_sample(x_t, self.M, self.random_start) # [B, M]
 
@@ -144,7 +143,5 @@ class SpatialPMA(nn.Module):
         slots = slots.squeeze(1)
         slots = slots.reshape(B, M, D)
 
-        if return_anchors:
-            return slots, anchors
         return slots
 

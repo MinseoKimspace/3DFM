@@ -8,7 +8,6 @@ from torch import nn
 from models.point_backbone import (
     PointBackbone,
     SpatialPMABackbone,
-    XHatKNNSpatialPMABackbone,
     XHatSelfCondBackbone,
     XHatSpatialPMABackbone,
 )
@@ -56,18 +55,6 @@ def build_model(config: Any) -> nn.Module:
             early_layers=_get(config, "early_layers", 2),
             num_slots=_get(config, "num_slots", 16),
             knn_k=_get(config, "knn_k", 32),
-            spatial_random_start=_get(config, "spatial_random_start", False),
-            xattn_every_late_block=_get(config, "xattn_every_late_block", False),
-        )
-
-    if arch == "xhat_knn_spatial_pma":
-        return XHatKNNSpatialPMABackbone(
-            **common,
-            early_layers=_get(config, "early_layers", 2),
-            num_slots=_get(config, "num_slots", 16),
-            knn_k=_get(config, "knn_k", 32),
-            slot_read_k=_get(config, "slot_read_k", 1),
-            slot_coord_detach=_get(config, "slot_coord_detach", False),
             spatial_random_start=_get(config, "spatial_random_start", False),
             xattn_every_late_block=_get(config, "xattn_every_late_block", False),
         )

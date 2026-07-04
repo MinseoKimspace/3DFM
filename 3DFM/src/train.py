@@ -74,7 +74,6 @@ def parse_args() -> argparse.Namespace:
             "spatial_pma",
             "xhat_selfcond",
             "xhat_spatial_pma",
-            "xhat_knn_spatial_pma",
         ],
         default="base",
     )
@@ -87,12 +86,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--knn-k", type=int, default=32)
     parser.add_argument("--spatial-random-start", action="store_true")
     parser.add_argument("--xattn-every-late-block", action="store_true")
-    parser.add_argument("--slot-read-k", type=int, default=1)
-    parser.add_argument(
-        "--slot-coord-detach",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
     parser.add_argument("--use-xhat-condition", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--aux-weight", type=float, default=0.0)
     parser.add_argument("--log-every", type=int, default=100)
