@@ -308,20 +308,43 @@ def density_stats(
     k: int,
     batch_size: int,
     device: torch.device,
+    max_values: int,
 ) -> dict[str, float]:
     values = []
+    total_sum = 0.0
+    total_count = 0
+    near_zero_count = 0
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(12345)
+
     for start in range(0, points.shape[0], batch_size):
         batch = points[start:start + batch_size].to(device)
         dist = torch.cdist(batch, batch) # [B, N, N]
         knn = dist.topk(k=k + 1, dim=-1, largest=False).values[..., 1:]
-        values.append(knn.reshape(-1).cpu())
+        flat = knn.reshape(-1).cpu()
+
+        total_sum += float(flat.sum().item())
+        total_count += int(flat.numel())
+        near_zero_count += int((flat < 1e-4).sum().item())
+
+        if max_values > 0 and flat.numel() > max_values:
+            idx = torch.randperm(flat.numel(), generator=generator)[:max_values]
+            flat = flat[idx]
+        values.append(flat)
+
+        if max_values > 0:
+            current = sum(value.numel() for value in values)
+            if current > max_values:
+                merged = torch.cat(values, dim=0)
+                idx = torch.randperm(merged.numel(), generator=generator)[:max_values]
+                values = [merged[idx]]
 
     d = torch.cat(values, dim=0)
     return {
-        "mean": float(d.mean().item()),
+        "mean": float(total_sum / max(total_count, 1)),
         "p50": float(torch.quantile(d, 0.50).item()),
         "p95": float(torch.quantile(d, 0.95).item()),
-        "near_zero_frac": float((d < 1e-4).float().mean().item()),
+        "near_zero_frac": float(near_zero_count / max(total_count, 1)),
     }
 
 
@@ -331,9 +354,22 @@ def compute_density_comparison(
     k: int,
     batch_size: int,
     device: torch.device,
+    max_values: int,
 ) -> dict[str, float]:
-    sample = density_stats(samples, k=k, batch_size=batch_size, device=device)
-    ref = density_stats(refs, k=k, batch_size=batch_size, device=device)
+    sample = density_stats(
+        samples,
+        k=k,
+        batch_size=batch_size,
+        device=device,
+        max_values=max_values,
+    )
+    ref = density_stats(
+        refs,
+        k=k,
+        batch_size=batch_size,
+        device=device,
+        max_values=max_values,
+    )
     out = {}
     for key, value in sample.items():
         out[f"sample_knn{k}_{key}"] = value
@@ -543,6 +579,7 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
                             k=args.density_k,
                             batch_size=args.density_batch_size,
                             device=device,
+                            max_values=args.density_max_values,
                         )
                     )
                 row.update(
@@ -608,6 +645,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--density", action="store_true")
     parser.add_argument("--density-k", type=int, default=4)
     parser.add_argument("--density-batch-size", type=int, default=1)
+    parser.add_argument("--density-max-values", type=int, default=2_000_000)
     parser.add_argument("--metric-batch-size", type=int, default=32)
     parser.add_argument("--lion-root", type=str, default="")
     parser.add_argument("--compute-emd", action="store_true")
@@ -680,6 +718,7 @@ def main() -> None:
                     k=args.density_k,
                     batch_size=args.density_batch_size,
                     device=device,
+                    max_values=args.density_max_values,
                 )
             )
         if args.permutation_check:

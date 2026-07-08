@@ -8,10 +8,17 @@ Use this file as the short result board. Keep detailed definitions in
 | Item | Status | Result | Notes |
 | --- | --- | --- | --- |
 | External calibration | pending | TBD | 1-NNA-CD within 1-2 pp |
-| Null control | pending | TBD | 1-NNA-CD in [45, 55]% |
+| Null control | borderline | disjoint 1-NNA=56.25%, COV=0.484, CD@full=0.00320 | close to 50%, slightly outside [45, 55]% |
 | Jitter control | pending | TBD | metrics worsen with sigma |
 | Density control | pending | TBD | kNN detects duplicate/subsample |
 | Mode-drop control | pending | TBD | COV-CD drops |
+
+## Harness Details
+
+| Control | Setup | CD@full | MMD-CD@full | MMD-CD-sample@full | COV-CD@full | 1-NNA-CD@full | Pair-CD@full | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Null control | refs as samples | 4.364e-09 | 4.364e-09 | 4.364e-09 | 1.000 | 0.000 | 0.01945 | exact duplicate cross-set; 1-NNA=0 is expected with current tie handling |
+| Null control | disjoint same-distribution A/B | 0.003202 | 0.003068 | 0.003202 | 0.484 | 0.5625 | 0.01954 | close to 50%; rerun with larger A/B if strict pass is needed |
 
 ## Existing Models
 
