@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from pathlib import Path
 
 import torch
@@ -65,8 +66,12 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--steps", type=int, default=2000)
+    parser.add_argument("--epochs", type=int, default=0)
     parser.add_argument("--nfe", type=int, default=64)
     parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--lr-gamma", type=float, default=1.0)
+    parser.add_argument("--ema-decay", type=float, default=0.0)
     parser.add_argument(
         "--arch",
         choices=[
@@ -155,13 +160,15 @@ def make_batch(
         target_order: str,
         num_points: int,
         target_subsample: str,
+        shape_indices: torch.Tensor | None = None,
         ) -> torch.Tensor:
-    shape_indices = torch.randint(
-        low=0,
-        high=targets.shape[0],
-        size=(batch_size,),
-        device=targets.device,
-    )
+    if shape_indices is None:
+        shape_indices = torch.randint(
+            low=0,
+            high=targets.shape[0],
+            size=(batch_size,),
+            device=targets.device,
+        )
     batch = targets[shape_indices].clone()
 
     pool_points = batch.shape[1]
@@ -207,6 +214,21 @@ def make_batch(
     return batch # [B, N, 3]
 
 
+@torch.no_grad()
+def update_ema(
+    ema_model: torch.nn.Module,
+    model: torch.nn.Module,
+    decay: float,
+) -> None:
+    ema_parameters = dict(ema_model.named_parameters())
+    for name, parameter in model.named_parameters():
+        ema_parameters[name].mul_(decay).add_(parameter.detach(), alpha=1.0 - decay)
+
+    ema_buffers = dict(ema_model.named_buffers())
+    for name, buffer in model.named_buffers():
+        ema_buffers[name].copy_(buffer.detach())
+
+
 def main() -> None:
     args = parse_args()
     torch.manual_seed(args.seed)
@@ -226,32 +248,49 @@ def main() -> None:
         print(exc)
 
     model = build_model(args).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+    )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer,
+        gamma=args.lr_gamma,
+    )
 
-    for step in range(1, args.steps + 1):
-        x_data = make_batch(
-            targets=targets,
-            batch_size=args.batch_size,
-            target_order=args.target_order,
-            num_points=args.num_points,
-            target_subsample=args.target_subsample,
-        )
+    ema_model = None
+    if args.ema_decay > 0.0:
+        if not 0.0 < args.ema_decay < 1.0:
+            raise ValueError("ema_decay must be in (0, 1).")
+        ema_model = copy.deepcopy(model).eval()
+        ema_model.requires_grad_(False)
 
+    if args.epochs < 0:
+        raise ValueError("epochs must be non-negative.")
+    if args.epochs == 0 and args.lr_gamma != 1.0:
+        raise ValueError("Exponential LR scheduling requires epochs > 0.")
+
+    def train_batch(x_data: torch.Tensor, step: int, epoch: int | None) -> None:
         optimizer.zero_grad(set_to_none=True)
         loss, metrics = fm_loss(model, x_data, aux_weight=args.aux_weight)
         loss.backward()
         optimizer.step()
+        if ema_model is not None:
+            update_ema(ema_model, model, args.ema_decay)
 
         if step % args.log_every == 0 or step == 1:
+            epoch_text = f"epoch {epoch}/{args.epochs} " if epoch is not None else ""
             print(
-                f"step {step} loss {float(metrics['loss']):.6f} "
+                f"{epoch_text}step {step} "
+                f"lr {optimizer.param_groups[0]['lr']:.6e} "
+                f"loss {float(metrics['loss']):.6f} "
                 f"fm {float(metrics['fm_mse']):.6f} "
                 f"aux {float(metrics['aux_mse']):.6f}"
             )
 
         if step % args.sample_every == 0:
             sample = sample_euler(
-                model=model,
+                model=ema_model if ema_model is not None else model,
                 batch_size=1,
                 num_points=args.num_points,
                 steps=args.nfe,
@@ -266,9 +305,45 @@ def main() -> None:
             except ImportError as exc:
                 print(exc)
 
+    step = 0
+    completed_epoch = 0
+    if args.epochs > 0:
+        for epoch in range(1, args.epochs + 1):
+            shape_order = torch.randperm(targets.shape[0], device=targets.device)
+            for start in range(0, targets.shape[0], args.batch_size):
+                step += 1
+                shape_indices = shape_order[start:start + args.batch_size]
+                x_data = make_batch(
+                    targets=targets,
+                    batch_size=shape_indices.numel(),
+                    target_order=args.target_order,
+                    num_points=args.num_points,
+                    target_subsample=args.target_subsample,
+                    shape_indices=shape_indices,
+                )
+                train_batch(x_data, step, epoch)
+            scheduler.step()
+            completed_epoch = epoch
+    else:
+        for step in range(1, args.steps + 1):
+            x_data = make_batch(
+                targets=targets,
+                batch_size=args.batch_size,
+                target_order=args.target_order,
+                num_points=args.num_points,
+                target_subsample=args.target_subsample,
+            )
+            train_batch(x_data, step, None)
+
     torch.save(
         {
-            "model": model.state_dict(),
+            "model": (ema_model if ema_model is not None else model).state_dict(),
+            "model_raw": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "step": step,
+            "epoch": completed_epoch,
+            "ema_decay": args.ema_decay,
             "args": vars(args),
         },
         out_dir / "checkpoint.pt",
