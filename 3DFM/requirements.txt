@@ -1,7 +1,12 @@
 torch>=2.1
 torch-geometric>=2.5
+torch-scatter
 open3d
 PyYAML
 matplotlib
 mitsuba
 numpy
+addict
+timm
+
+# PTv3 also requires the spconv-cuXXX package matching the local CUDA version.

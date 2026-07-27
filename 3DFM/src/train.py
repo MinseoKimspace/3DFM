@@ -76,6 +76,7 @@ def parse_args() -> argparse.Namespace:
         "--arch",
         choices=[
             "base",
+            "ptv3_base",
             "spatial_pma",
             "xhat_selfcond",
             "xhat_spatial_pma",
@@ -93,6 +94,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--xattn-every-late-block", action="store_true")
     parser.add_argument("--use-xhat-condition", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--aux-weight", type=float, default=0.0)
+    parser.add_argument("--ptv3-grid-size", type=float, default=0.01)
+    parser.add_argument("--ptv3-time-dim", type=int, default=32)
+    parser.add_argument("--ptv3-patch-size", type=int, default=128)
     parser.add_argument("--log-every", type=int, default=100)
     parser.add_argument("--sample-every", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)

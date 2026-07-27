@@ -32,6 +32,16 @@ def build_model(config: Any) -> nn.Module:
     if arch == "base":
         return PointBackbone(**common)
 
+    if arch == "ptv3_base":
+        from models.ptv3_backbone import PTv3FlowBackbone
+
+        return PTv3FlowBackbone(
+            num_points=_get(config, "num_points", 8192),
+            grid_size=_get(config, "ptv3_grid_size", 0.01),
+            time_dim=_get(config, "ptv3_time_dim", 32),
+            patch_size=_get(config, "ptv3_patch_size", 128),
+        )
+
     if arch == "spatial_pma":
         return SpatialPMABackbone(
             **common,
