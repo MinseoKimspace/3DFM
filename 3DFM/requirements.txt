@@ -9,4 +9,4 @@ numpy
 addict
 timm
 
-# PTv3 also requires the spconv-cuXXX package matching the local CUDA version.
+# DiPT also requires the spconv-cuXXX package matching the local CUDA version.

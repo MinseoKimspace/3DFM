@@ -93,7 +93,7 @@ def main() -> None:
 
     summary = {
         "checkpoint": args.checkpoint,
-        "arch": train_args.get("arch", "base"),
+        "arch": train_args.get("arch", "dipt_base"),
         "num_samples": args.num_samples,
         "num_points": num_points,
         "checkpoint_num_points": checkpoint_num_points,

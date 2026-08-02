@@ -31,12 +31,10 @@ def build_model_from_checkpoint(ckpt: dict, device: torch.device) -> torch.nn.Mo
 
 
 def choose_intervention(model: torch.nn.Module, train_args: dict) -> tuple[str, tuple[str, ...], str]:
-    arch = train_args.get("arch", "base")
-
     if hasattr(model, "spatial_pma"):
         return "slot_mode", SLOT_MODES, "spatial_pma"
 
-    if arch == "xhat_selfcond" and getattr(model, "use_xhat_condition", False):
+    if getattr(model, "uses_self_condition", False):
         return "cond_mode", COND_MODES, "xhat_selfcond"
 
     return "", ("normal",), "none"
@@ -158,7 +156,7 @@ def main() -> None:
 
     summary = {
         "checkpoint": args.checkpoint,
-        "arch": train_args.get("arch", "base"),
+        "arch": train_args.get("arch", "dipt_base"),
         "num_samples": int(noise.shape[0]),
         "num_points": num_points,
         "checkpoint_num_points": checkpoint_num_points,

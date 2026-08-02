@@ -149,7 +149,7 @@ def finalize_report(
 
     return {
         "checkpoint": args.checkpoint,
-        "arch": checkpoint_args.get("arch", "base"),
+        "arch": checkpoint_args.get("arch", "dipt_base"),
         "nfe": args.nfe,
         "num_samples": args.num_samples,
         "batch_size": args.batch_size,

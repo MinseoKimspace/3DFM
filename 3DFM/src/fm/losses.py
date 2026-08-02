@@ -11,15 +11,27 @@ def fm_loss(
     model: torch.nn.Module, # model(z_t, t) -> velocity: [B, N, 3]
     x_data: torch.Tensor, # [B, N, 3]
     aux_weight: float = 0.0,
+    self_condition_prob: float = 0.5,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    
+    if not 0.0 <= self_condition_prob <= 1.0:
+        raise ValueError("self_condition_prob must be in [0, 1].")
+
     x_noise = torch.randn_like(x_data)
     t= sample_time(batch=x_data.shape[0], device=x_data.device, dtype=x_data.dtype)
     z_t = linear_path(x_data, x_noise, t)
     target = x_data - x_noise
 
     aux_loss = torch.zeros((), device=x_data.device, dtype=x_data.dtype)
-    if aux_weight > 0.0:
+    if getattr(model, "uses_self_condition", False):
+        if aux_weight > 0.0:
+            raise ValueError("True self-conditioning does not use aux_weight.")
+        self_cond = None
+        if torch.rand((), device=x_data.device) < self_condition_prob:
+            with torch.no_grad():
+                first_velocity = model(z_t, t, self_cond=None)
+                self_cond = (z_t + (1.0 - t) * first_velocity).detach()
+        pred = model(z_t, t, self_cond=self_cond)
+    elif aux_weight > 0.0:
         if not hasattr(model, "forward_with_aux"):
             raise ValueError("aux_weight > 0 requires model.forward_with_aux.")
         out = model.forward_with_aux(z_t, t)

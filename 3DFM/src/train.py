@@ -75,28 +75,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--arch",
         choices=[
-            "base",
-            "ptv3_base",
-            "spatial_pma",
-            "xhat_selfcond",
-            "xhat_spatial_pma",
+            "dipt_base",
+            "dipt_spatial_pma",
+            "dipt_xhat_anchor_pma",
+            "dipt_xhat_selfcond",
         ],
-        default="base",
+        default="dipt_base",
     )
-    parser.add_argument("--hidden-dim", type=int, default=128)
-    parser.add_argument("--num-layers", type=int, default=4)
-    parser.add_argument("--num-heads", type=int, default=4)
-    parser.add_argument("--dropout", type=float, default=0.0)
-    parser.add_argument("--early-layers", type=int, default=2)
-    parser.add_argument("--num-slots", type=int, default=16)
-    parser.add_argument("--knn-k", type=int, default=32)
+    parser.add_argument("--early-layers", type=int, default=4)
+    parser.add_argument("--num-slots", type=int, default=64)
+    parser.add_argument("--knn-k", type=int, default=64)
     parser.add_argument("--spatial-random-start", action="store_true")
     parser.add_argument("--xattn-every-late-block", action="store_true")
-    parser.add_argument("--use-xhat-condition", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--aux-weight", type=float, default=0.0)
-    parser.add_argument("--ptv3-grid-size", type=float, default=0.01)
-    parser.add_argument("--ptv3-time-dim", type=int, default=32)
-    parser.add_argument("--ptv3-patch-size", type=int, default=128)
+    parser.add_argument("--self-cond-prob", type=float, default=0.5)
+    parser.add_argument("--dipt-grid-size", type=float, default=0.02)
+    parser.add_argument("--dipt-depth", type=int, default=8)
+    parser.add_argument("--dipt-channels", type=int, default=384)
+    parser.add_argument("--dipt-num-heads", type=int, default=6)
+    parser.add_argument("--dipt-patch-size", type=int, nargs="+", default=None)
+    parser.add_argument("--dipt-time-scale", type=float, default=1000.0)
+    parser.add_argument("--dipt-shuffle-orders", action="store_true")
     parser.add_argument("--log-every", type=int, default=100)
     parser.add_argument("--sample-every", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
@@ -276,7 +275,12 @@ def main() -> None:
 
     def train_batch(x_data: torch.Tensor, step: int, epoch: int | None) -> None:
         optimizer.zero_grad(set_to_none=True)
-        loss, metrics = fm_loss(model, x_data, aux_weight=args.aux_weight)
+        loss, metrics = fm_loss(
+            model,
+            x_data,
+            aux_weight=args.aux_weight,
+            self_condition_prob=args.self_cond_prob,
+        )
         loss.backward()
         optimizer.step()
         if ema_model is not None:

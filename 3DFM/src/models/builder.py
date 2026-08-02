@@ -5,13 +5,6 @@ from typing import Any
 
 from torch import nn
 
-from models.point_backbone import (
-    PointBackbone,
-    SpatialPMABackbone,
-    XHatSelfCondBackbone,
-    XHatSpatialPMABackbone,
-)
-
 
 def _get(config: Any, name: str, default: Any) -> Any:
     if isinstance(config, Mapping):
@@ -20,53 +13,53 @@ def _get(config: Any, name: str, default: Any) -> Any:
 
 
 def build_model(config: Any) -> nn.Module:
-    arch = _get(config, "arch", "base")
+    from models.dipt_backbone import (
+        DiPTFlowBackbone,
+        DiPTSpatialPMABackbone,
+        DiPTXHatSelfConditionBackbone,
+        DiPTXHatSpatialPMABackbone,
+    )
+
+    arch = _get(config, "arch", "dipt_base")
     common = {
-        "num_points": _get(config, "num_points", 1024),
-        "hidden_dim": _get(config, "hidden_dim", 128),
-        "num_layers": _get(config, "num_layers", 4),
-        "num_heads": _get(config, "num_heads", 4),
-        "dropout": _get(config, "dropout", 0.0),
+        "num_points": _get(config, "num_points", 2048),
+        "grid_size": _get(config, "dipt_grid_size", 0.02),
+        "depth": _get(config, "dipt_depth", 8),
+        "channels": _get(config, "dipt_channels", 384),
+        "num_heads": _get(config, "dipt_num_heads", 6),
+        "patch_size": _get(config, "dipt_patch_size", None)
+        or [256, 512, 1024, 1024, 256, 512, 1024, 1024],
+        "time_scale": _get(config, "dipt_time_scale", 1000.0),
+        "shuffle_orders": _get(config, "dipt_shuffle_orders", False),
     }
 
-    if arch == "base":
-        return PointBackbone(**common)
+    if arch == "dipt_base":
+        return DiPTFlowBackbone(**common)
 
-    if arch == "ptv3_base":
-        from models.ptv3_backbone import PTv3FlowBackbone
-
-        return PTv3FlowBackbone(
-            num_points=_get(config, "num_points", 8192),
-            grid_size=_get(config, "ptv3_grid_size", 0.01),
-            time_dim=_get(config, "ptv3_time_dim", 32),
-            patch_size=_get(config, "ptv3_patch_size", 128),
-        )
-
-    if arch == "spatial_pma":
-        return SpatialPMABackbone(
+    if arch == "dipt_spatial_pma":
+        return DiPTSpatialPMABackbone(
             **common,
-            early_layers=_get(config, "early_layers", 2),
-            num_slots=_get(config, "num_slots", 16),
-            knn_k=_get(config, "knn_k", 32),
+            early_layers=_get(config, "early_layers", 4),
+            num_slots=_get(config, "num_slots", 64),
+            knn_k=_get(config, "knn_k", 64),
             spatial_random_start=_get(config, "spatial_random_start", False),
             xattn_every_late_block=_get(config, "xattn_every_late_block", False),
         )
 
-    if arch == "xhat_selfcond":
-        return XHatSelfCondBackbone(
+    if arch == "dipt_xhat_anchor_pma":
+        return DiPTXHatSpatialPMABackbone(
             **common,
-            early_layers=_get(config, "early_layers", 2),
-            use_xhat_condition=_get(config, "use_xhat_condition", True),
-        )
-
-    if arch == "xhat_spatial_pma":
-        return XHatSpatialPMABackbone(
-            **common,
-            early_layers=_get(config, "early_layers", 2),
-            num_slots=_get(config, "num_slots", 16),
-            knn_k=_get(config, "knn_k", 32),
+            early_layers=_get(config, "early_layers", 4),
+            num_slots=_get(config, "num_slots", 64),
+            knn_k=_get(config, "knn_k", 64),
             spatial_random_start=_get(config, "spatial_random_start", False),
             xattn_every_late_block=_get(config, "xattn_every_late_block", False),
+        )
+
+    if arch == "dipt_xhat_selfcond":
+        return DiPTXHatSelfConditionBackbone(
+            **common,
+            early_layers=_get(config, "early_layers", 4),
         )
 
     raise ValueError(f"Unknown model arch: {arch}")

@@ -412,8 +412,7 @@ def to_jsonable(row: dict) -> dict[str, float]:
 
 
 def supports_xhat_condition(model: torch.nn.Module, train_args: object) -> bool:
-    arch = get_arg(train_args, "arch", "base")
-    return arch == "xhat_selfcond" and bool(getattr(model, "use_xhat_condition", False))
+    return bool(getattr(model, "uses_self_condition", False))
 
 
 def intervention_arg(model: torch.nn.Module, train_args: object) -> str:
@@ -531,7 +530,7 @@ def eval_checkpoints_cd(args: argparse.Namespace) -> None:
         checkpoint_items.append((path, label, model, train_args))
 
     for path, label, model, train_args in checkpoint_items:
-        arch = str(get_arg(train_args, "arch", "base"))
+        arch = str(get_arg(train_args, "arch", "dipt_base"))
         modes = args.modes if intervention_arg(model, train_args) else ["normal"]
 
         for nfe in args.nfe:

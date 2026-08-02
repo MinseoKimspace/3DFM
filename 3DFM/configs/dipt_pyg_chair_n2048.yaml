@@ -1,0 +1,46 @@
+data:
+  data_mode: shapenet
+  data_root: 3DFM/src/data/shapenet_pyg
+  category: Chair
+  split: train
+  shape_index: 0
+  num_shapes: 0
+  num_points: 2048
+  fixed_points_replace: false
+  target_subsample: none
+  target_order: shuffle
+
+model:
+  arch: dipt_base
+  dipt_grid_size: 0.02
+  dipt_depth: 8
+  dipt_channels: 384
+  dipt_num_heads: 6
+  dipt_patch_size: [256, 512, 1024, 1024, 256, 512, 1024, 1024]
+  dipt_time_scale: 1000.0
+  dipt_shuffle_orders: false
+  early_layers: 4
+  num_slots: 64
+  knn_k: 64
+  spatial_random_start: false
+  xattn_every_late_block: false
+
+training:
+  batch_size: 4
+  epochs: 300
+  lr: 2.0e-4
+  weight_decay: 0.0
+  lr_gamma: 0.99
+  ema_decay: 0.9999
+  aux_weight: 0.0
+  self_cond_prob: 0.5
+  seed: 42
+  log_every: 100
+  sample_every: 5000
+  device: auto
+
+sampling:
+  nfe: 64
+
+output:
+  out_dir: runs/dipt_pyg_chair_n2048

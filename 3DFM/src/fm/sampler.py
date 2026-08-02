@@ -24,6 +24,7 @@ def sample_euler(
         batch_size = x.shape[0]
 
     times = torch.linspace(0.0, 1.0, steps + 1, device=device, dtype=dtype)
+    self_cond = None
 
     for i in range(steps):
         t_now = times[i]
@@ -31,8 +32,13 @@ def sample_euler(
         dt = t_next - t_now
 
         t = t_now.expand(batch_size, 1, 1)
-        v = model(x, t, **model_kwargs)
+        step_kwargs = dict(model_kwargs)
+        if getattr(model, "uses_self_condition", False):
+            step_kwargs["self_cond"] = self_cond
+        v = model(x, t, **step_kwargs)
 
+        if getattr(model, "uses_self_condition", False):
+            self_cond = (x + (1.0 - t) * v).detach()
         x = x + dt * v
 
     return x # [B, N, 3]
