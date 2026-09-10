@@ -34,6 +34,12 @@ def sample_in_batches(
     device: torch.device,
 ) -> tuple[torch.Tensor, float]:
     samples = []
+    total = noise.shape[0]
+    print(
+        f"nfe {nfe}: sampling {total} clouds, {noise.shape[1]} points each, "
+        f"batch size {batch_size}, device {device}",
+        flush=True,
+    )
 
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -51,6 +57,14 @@ def sample_in_batches(
             init=init,
         )
         samples.append(sample.cpu())
+        completed = start_idx + init.shape[0]
+        elapsed = time.perf_counter() - start
+        remaining = elapsed * (total - completed) / completed
+        print(
+            f"nfe {nfe}: {completed}/{total} samples ({completed / total:.1%}) | "
+            f"elapsed {elapsed:.1f}s | ETA ~{remaining:.1f}s",
+            flush=True,
+        )
 
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -79,6 +93,7 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"loading checkpoint: {args.checkpoint} (device={device})", flush=True)
     ckpt = torch.load(args.checkpoint, map_location="cpu")
     model = build_model_from_checkpoint(ckpt, device=device)
 
@@ -136,7 +151,8 @@ def main() -> None:
         summary["times"][str(nfe)] = metadata
         print(
             f"nfe {nfe}: saved {samples.shape[0]} samples "
-            f"in {elapsed:.3f}s ({elapsed / args.num_samples:.4f}s/sample)"
+            f"in {elapsed:.3f}s ({elapsed / args.num_samples:.4f}s/sample)",
+            flush=True,
         )
 
     with open(out_dir / "summary.json", "w", encoding="utf-8") as f:
