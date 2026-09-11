@@ -17,6 +17,7 @@ def build_model(config: Any) -> nn.Module:
         DiPTFlowBackbone,
         DiPTSpatialPMABackbone,
         DiPTXHatSelfConditionBackbone,
+        DiPTXHatSelfConditionPMABackbone,
         DiPTXHatSpatialPMABackbone,
     )
 
@@ -36,18 +37,13 @@ def build_model(config: Any) -> nn.Module:
     if arch == "dipt_base":
         return DiPTFlowBackbone(**common)
 
-    if arch == "dipt_spatial_pma":
-        return DiPTSpatialPMABackbone(
-            **common,
-            early_layers=_get(config, "early_layers", 4),
-            num_slots=_get(config, "num_slots", 64),
-            knn_k=_get(config, "knn_k", 64),
-            spatial_random_start=_get(config, "spatial_random_start", False),
-            xattn_every_late_block=_get(config, "xattn_every_late_block", False),
-        )
-
-    if arch == "dipt_xhat_anchor_pma":
-        return DiPTXHatSpatialPMABackbone(
+    spatial_models = {
+        "dipt_spatial_pma": DiPTSpatialPMABackbone,
+        "dipt_xhat_anchor_pma": DiPTXHatSpatialPMABackbone,
+        "dipt_xhat_selfcond_pma": DiPTXHatSelfConditionPMABackbone,
+    }
+    if arch in spatial_models:
+        return spatial_models[arch](
             **common,
             early_layers=_get(config, "early_layers", 4),
             num_slots=_get(config, "num_slots", 64),

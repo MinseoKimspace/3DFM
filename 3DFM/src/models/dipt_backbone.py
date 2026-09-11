@@ -272,3 +272,40 @@ class DiPTXHatSelfConditionBackbone(DiPTFlowBackbone):
 
         point = self._run_blocks(point, self.early_layers, self.depth)
         return self._predict_velocity(point, batch_size, num_points)
+
+
+class DiPTXHatSelfConditionPMABackbone(DiPTSpatialPMABackbone):
+    """Spatially pool the previous endpoint prediction, not current hidden features."""
+
+    uses_self_condition = True
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.self_cond_embed = nn.Sequential(
+            nn.Linear(3, self.channels),
+            nn.GELU(),
+            nn.Linear(self.channels, self.channels),
+        )
+
+    def forward(
+        self,
+        z: torch.Tensor,
+        t: torch.Tensor,
+        self_cond: torch.Tensor | None = None,
+        cond_mode: str = "normal",
+    ) -> torch.Tensor:
+        if cond_mode not in ("normal", "shuffle", "zero"):
+            raise ValueError(f"Unknown conditioning mode: {cond_mode}")
+        batch_size, num_points, _ = z.shape
+        point = self._prepare_point(z, t)
+        point = self._run_blocks(point, 0, self.early_layers)
+
+        if self_cond is None or cond_mode == "zero":
+            point = self._run_blocks(point, self.early_layers, self.depth)
+        else:
+            if self_cond.shape != z.shape:
+                raise ValueError("self_cond must have the same shape as z.")
+            conditioned = _apply_mode(self_cond.detach(), cond_mode)
+            slots = self.spatial_pma(conditioned, self.self_cond_embed(conditioned))
+            point = self._inject_late(point, slots, batch_size, num_points)
+        return self._predict_velocity(point, batch_size, num_points)

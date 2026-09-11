@@ -31,11 +31,11 @@ def build_model_from_checkpoint(ckpt: dict, device: torch.device) -> torch.nn.Mo
 
 
 def choose_intervention(model: torch.nn.Module, train_args: dict) -> tuple[str, tuple[str, ...], str]:
-    if hasattr(model, "spatial_pma"):
-        return "slot_mode", SLOT_MODES, "spatial_pma"
-
     if getattr(model, "uses_self_condition", False):
         return "cond_mode", COND_MODES, "xhat_selfcond"
+
+    if hasattr(model, "spatial_pma"):
+        return "slot_mode", SLOT_MODES, "spatial_pma"
 
     return "", ("normal",), "none"
 

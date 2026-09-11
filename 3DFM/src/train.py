@@ -79,6 +79,7 @@ def parse_args() -> argparse.Namespace:
             "dipt_spatial_pma",
             "dipt_xhat_anchor_pma",
             "dipt_xhat_selfcond",
+            "dipt_xhat_selfcond_pma",
         ],
         default="dipt_base",
     )

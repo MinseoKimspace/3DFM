@@ -17,6 +17,7 @@ available.
 | DiPT + Spatial PMA | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
 | DiPT + XHat Anchor PMA | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
 | DiPT + XHat Self-Conditioning | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
+| DiPT + XHat Self-Conditioning PMA | TBD | TBD | TBD | TBD | TBD | TBD | TBD | Previous-step spatial conditioning |
 
 ## 2048 Points
 
@@ -26,6 +27,7 @@ available.
 | DiPT + Spatial PMA | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
 | DiPT + XHat Anchor PMA | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
 | DiPT + XHat Self-Conditioning | TBD | TBD | TBD | TBD | TBD | TBD | TBD | |
+| DiPT + XHat Self-Conditioning PMA | TBD | TBD | TBD | TBD | TBD | TBD | TBD | Previous-step spatial conditioning |
 
 ## Summary
 

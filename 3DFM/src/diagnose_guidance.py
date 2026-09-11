@@ -71,6 +71,9 @@ def diagnose_batch(
     batch_size = x.shape[0]
     times = torch.linspace(0.0, 1.0, nfe + 1, device=device, dtype=dtype)
     sums: list[dict[str, float]] = []
+    uses_self_condition = bool(getattr(model, "uses_self_condition", False))
+    mode_arg = "cond_mode" if uses_self_condition else "slot_mode"
+    self_cond = None
 
     for step in range(nfe):
         t_now = times[step]
@@ -78,9 +81,10 @@ def diagnose_batch(
         dt = t_next - t_now
         t = t_now.expand(batch_size, 1, 1)
 
-        v_normal = model(x, t, slot_mode="normal")
-        v_zero = model(x, t, slot_mode="zero")
-        v_shuffle = model(x, t, slot_mode="shuffle")
+        kwargs = {"self_cond": self_cond} if uses_self_condition else {}
+        v_normal = model(x, t, **kwargs, **{mode_arg: "normal"})
+        v_zero = model(x, t, **kwargs, **{mode_arg: "zero"})
+        v_shuffle = model(x, t, **kwargs, **{mode_arg: "shuffle"})
 
         diff_zero = relative_velocity_diff(v_normal, v_zero)
         diff_shuffle = relative_velocity_diff(v_normal, v_shuffle)
@@ -96,6 +100,8 @@ def diagnose_batch(
         )
 
         # Follow the normal guided trajectory during inference.
+        if uses_self_condition:
+            self_cond = (x + (1.0 - t) * v_normal).detach()
         x = x + dt * v_normal
 
     return sums, x.cpu()
@@ -196,8 +202,8 @@ def main() -> None:
     checkpoint_args = ckpt["args"]
     model = build_model_from_checkpoint(ckpt, device=device)
 
-    if not hasattr(model, "spatial_pma"):
-        raise ValueError("Guidance diagnostics require a spatial_pma model.")
+    if not hasattr(model, "spatial_pma") and not getattr(model, "uses_self_condition", False):
+        raise ValueError("Guidance diagnostics require a PMA or self-conditioning model.")
 
     num_points = checkpoint_args["num_points"]
     noise = load_noise(

@@ -416,10 +416,10 @@ def supports_xhat_condition(model: torch.nn.Module, train_args: object) -> bool:
 
 
 def intervention_arg(model: torch.nn.Module, train_args: object) -> str:
-    if hasattr(model, "spatial_pma"):
-        return "slot_mode"
     if supports_xhat_condition(model, train_args):
         return "cond_mode"
+    if hasattr(model, "spatial_pma"):
+        return "slot_mode"
     return ""
 
 

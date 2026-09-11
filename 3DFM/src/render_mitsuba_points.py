@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -71,6 +72,19 @@ def load_cloud(path: Path, index: int, up_axis: str) -> torch.Tensor:
 
 def collect_jobs(args: argparse.Namespace) -> list[RenderJob]:
     jobs = []
+    if args.xhat_dir:
+        root = Path(args.xhat_dir)
+        with open(root / "xhat" / "manifest.json", encoding="utf-8") as f:
+            manifest = json.load(f)
+        for row in manifest["snapshots"]:
+            for key, title in (("xt", "Current state"), ("xhat1", "Predicted final")):
+                jobs.append(RenderJob(
+                    path=root / "xhat" / row[key],
+                    label=f"{title} / t={row['t']:.4f}",
+                    model_index=0,
+                ))
+        jobs.append(RenderJob(root / "samples.pt", "Generated final (not GT)", 0))
+        return jobs
     searched = []
     run_dirs = expand_run_dirs(args.run_dirs)
 
@@ -159,8 +173,9 @@ def color_for_point(point: torch.Tensor, lo_y: float, hi_y: float) -> list[float
     return rgb.tolist()
 
 
-def make_scene(mi, cloud: torch.Tensor, args: argparse.Namespace):
-    center, extent = bounds(cloud, args.pad)
+def make_scene(mi, cloud: torch.Tensor, args: argparse.Namespace, frame_cloud: torch.Tensor | None = None):
+    frame = cloud if frame_cloud is None else frame_cloud
+    center, extent = bounds(frame, args.pad)
     origin, target, up = camera(center, extent, args.view, args.camera_distance)
     transform = mi.ScalarTransform4f
 
@@ -195,8 +210,8 @@ def make_scene(mi, cloud: torch.Tensor, args: argparse.Namespace):
     }
 
     fixed_color = hex_color(args.color)
-    lo_y = float(cloud[:, 1].min().item())
-    hi_y = float(cloud[:, 1].max().item())
+    lo_y = float(frame[:, 1].min().item())
+    hi_y = float(frame[:, 1].max().item())
 
     for i, point in enumerate(cloud):
         color = color_for_point(point, lo_y, hi_y) if args.height_color else fixed_color
@@ -213,12 +228,12 @@ def make_scene(mi, cloud: torch.Tensor, args: argparse.Namespace):
     return mi.load_dict(scene)
 
 
-def render_job(mi, job: RenderJob, args: argparse.Namespace, out_dir: Path) -> Path:
+def render_job(mi, job: RenderJob, args: argparse.Namespace, out_dir: Path, frame_cloud: torch.Tensor | None = None) -> Path:
     cloud = load_cloud(job.path, args.index, args.up_axis)
     if args.max_points > 0:
         cloud = cloud[:args.max_points]
 
-    scene = make_scene(mi, cloud, args)
+    scene = make_scene(mi, cloud, args, frame_cloud)
     image = mi.render(scene, spp=args.spp)
     if args.exposure != 1.0:
         image = image * args.exposure
@@ -262,6 +277,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dirs", nargs="*", default=[])
     parser.add_argument("--inputs", nargs="*", default=[])
+    parser.add_argument("--xhat-dir", default="", help="NFE directory produced by sample.py --save-xhat.")
     parser.add_argument("--labels", nargs="*", default=[])
     parser.add_argument("--nfe", nargs="+", default=[str(v) for v in DEFAULT_NFE])
     parser.add_argument("--modes", nargs="*", default=[""])
@@ -289,14 +305,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grid-cols", type=int, default=0)
 
     args = parser.parse_args()
+    if args.xhat_dir and (args.run_dirs or args.inputs):
+        parser.error("Use --xhat-dir without --run-dirs or --inputs.")
     args.nfe = parse_nfe(args.nfe)
     return args
 
 
 def main() -> None:
     args = parse_args()
-    if not args.run_dirs and not args.inputs:
-        raise ValueError("Pass --run-dirs or --inputs.")
+    if not args.run_dirs and not args.inputs and not args.xhat_dir:
+        raise ValueError("Pass --run-dirs, --inputs or --xhat-dir.")
 
     jobs = collect_jobs(args)
 
@@ -308,9 +326,14 @@ def main() -> None:
     mi.set_variant(args.variant)
 
     out_dir = Path(args.out_dir)
-    image_paths = [render_job(mi, job, args, out_dir) for job in jobs]
+    frame_cloud = None
+    if args.xhat_dir:
+        # Keep position, scale, lighting and height colors comparable across time.
+        clouds = [load_cloud(job.path, args.index, args.up_axis) for job in jobs]
+        frame_cloud = torch.cat([c[:args.max_points] if args.max_points > 0 else c for c in clouds])
+    image_paths = [render_job(mi, job, args, out_dir, frame_cloud) for job in jobs]
 
-    cols = args.grid_cols or len(args.nfe)
+    cols = args.grid_cols or (2 if args.xhat_dir else len(args.nfe))
     save_grid(
         image_paths=image_paths,
         labels=[job.label for job in jobs],
