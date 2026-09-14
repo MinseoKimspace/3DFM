@@ -48,8 +48,7 @@ python 3DFM/src/eval.py --refs runs/refs/chair_test_S512_n512_random.pt --sample
 ### Render: Each Model + Comparison Grid
 
 ```powershell
-python 3DFM/src/render_mitsuba_points.py --run-dirs runs/dipt_base_pointflow_n512/eval runs/dipt_spatial_pma_pointflow_n512/eval runs/dipt_xhat_anchor_pma_pointflow_n512/eval runs/dipt_xhat_selfcond_pointflow_n512/eval --labels Base SpatialPMA XHatAnchorPMA XHatSelfCond --nfe 64 --index 2 --out-dir runs/figures/pointflow_n512_nfe64_idx2 --view side --up-axis y --camera-distance 3.2 --fov 35 --pad 1.12 --radius 0.2 --height-color --ambient 0.9 --key-light 3 --spp 128 --width 900 --height 900 --grid-cols 4
-python 3DFM/src/render_mitsuba_points.py --run-dirs runs/dipt_xhat_selfcond_pma_pointflow_n512/eval --labels XHatSelfCondPMA --nfe 64 --index 2 --out-dir runs/figures/selfcond_pma_n512_nfe64_idx2 --view side --up-axis y --camera-distance 3.2 --fov 35 --pad 1.12 --radius 0.2 --height-color --ambient 0.9 --key-light 3 --spp 128 --width 900 --height 900
+python 3DFM/src/render_mitsuba_points.py --run-dirs runs/dipt_base_pointflow_n512/eval runs/dipt_spatial_pma_pointflow_n512/eval runs/dipt_xhat_anchor_pma_pointflow_n512/eval runs/dipt_xhat_selfcond_pointflow_n512/eval runs/dipt_xhat_selfcond_pma_pointflow_n512/eval --labels Base SpatialPMA XHatAnchorPMA XHatSelfCond XHatSelfCondPMA --nfe 64 --index 2 --out-dir runs/figures/pointflow_n512_nfe64_idx2 --view side --up-axis y --camera-distance 3.2 --fov 35 --pad 1.12 --radius 0.2 --height-color --ambient 0.9 --key-light 3 --spp 128 --width 900 --height 900 --grid-cols 5
 ```
 
 ## PointFlow 2048
@@ -93,8 +92,7 @@ python 3DFM/src/eval.py --refs runs/refs/chair_test_n2048_random.pt --samples ru
 ### Render: Each Model + Comparison Grid
 
 ```powershell
-python 3DFM/src/render_mitsuba_points.py --run-dirs runs/dipt_base_pointflow_n2048/eval runs/dipt_spatial_pma_pointflow_n2048/eval runs/dipt_xhat_anchor_pma_pointflow_n2048/eval runs/dipt_xhat_selfcond_pointflow_n2048/eval --labels Base SpatialPMA XHatAnchorPMA XHatSelfCond --nfe 64 --index 2 --out-dir runs/figures/pointflow_n2048_nfe64_idx2 --view side --up-axis y --camera-distance 3.2 --fov 35 --pad 1.12 --radius 0.1 --height-color --ambient 0.9 --key-light 3 --spp 128 --width 900 --height 900 --grid-cols 4
-python 3DFM/src/render_mitsuba_points.py --run-dirs runs/dipt_xhat_selfcond_pma_pointflow_n2048/eval --labels XHatSelfCondPMA --nfe 64 --index 2 --out-dir runs/figures/selfcond_pma_n2048_nfe64_idx2 --view side --up-axis y --camera-distance 3.2 --fov 35 --pad 1.12 --radius 0.1 --height-color --ambient 0.9 --key-light 3 --spp 128 --width 900 --height 900
+python 3DFM/src/render_mitsuba_points.py --run-dirs runs/dipt_base_pointflow_n2048/eval runs/dipt_spatial_pma_pointflow_n2048/eval runs/dipt_xhat_anchor_pma_pointflow_n2048/eval runs/dipt_xhat_selfcond_pointflow_n2048/eval runs/dipt_xhat_selfcond_pma_pointflow_n2048/eval --labels Base SpatialPMA XHatAnchorPMA XHatSelfCond XHatSelfCondPMA --nfe 64 --index 2 --out-dir runs/figures/pointflow_n2048_nfe64_idx2 --view side --up-axis y --camera-distance 3.2 --fov 35 --pad 1.12 --radius 0.1 --height-color --ambient 0.9 --key-light 3 --spp 128 --width 900 --height 900 --grid-cols 5
 ```
 
 ## Previous-Prediction PMA
